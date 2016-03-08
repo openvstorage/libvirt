@@ -57,6 +57,10 @@ struct _virDomainSnapshotDiskDef {
     int protocol;   /* network source protocol */
     size_t nhosts;  /* network source hosts count */
     virDomainDiskHostDefPtr hosts; /* network source hosts */
+
+    /* OpenvStorage specific */
+    bool ovs_has_snapshot_timeout;
+    uint32_t snapshot_timeout;
 };
 
 /* Stores the complete snapshot metadata */

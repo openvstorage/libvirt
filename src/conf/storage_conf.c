@@ -59,7 +59,7 @@ VIR_ENUM_IMPL(virStoragePool,
               VIR_STORAGE_POOL_LAST,
               "dir", "fs", "netfs",
               "logical", "disk", "iscsi",
-              "scsi", "mpath", "rbd", "sheepdog", "gluster")
+              "scsi", "mpath", "rbd", "sheepdog", "gluster", "openvstorage")
 
 VIR_ENUM_IMPL(virStoragePoolFormatFileSystem,
               VIR_STORAGE_POOL_FS_LAST,
@@ -277,7 +277,16 @@ static virStoragePoolTypeInfo poolTypeInfo[] = {
          .defaultFormat = VIR_STORAGE_VOL_DISK_NONE,
          .formatFromString = virStorageVolFormatDiskTypeFromString,
          .formatToString = virStorageVolFormatDiskTypeToString,
+     }
+    },
+    {.poolType = VIR_STORAGE_POOL_OPENVSTORAGE,
+     .poolOptions = {
+         .flags = (VIR_STORAGE_POOL_SOURCE_NETWORK),
      },
+      .volOptions = {
+          .defaultFormat = VIR_STORAGE_FILE_RAW,
+          .formatToString = virStoragePoolFormatDiskTypeToString,
+    }
     }
 };
 
@@ -1217,7 +1226,8 @@ virStoragePoolDefFormat(virStoragePoolDefPtr def)
      * files, so they don't have a target */
     if (def->type != VIR_STORAGE_POOL_RBD &&
         def->type != VIR_STORAGE_POOL_SHEEPDOG &&
-        def->type != VIR_STORAGE_POOL_GLUSTER) {
+        def->type != VIR_STORAGE_POOL_GLUSTER &&
+        def->type != VIR_STORAGE_POOL_OPENVSTORAGE) {
         virBufferAddLit(&buf, "  <target>\n");
 
         virBufferEscapeString(&buf, "    <path>%s</path>\n", def->target.path);
@@ -2216,6 +2226,8 @@ virStoragePoolMatch(virStoragePoolObjPtr poolobj,
                (poolobj->def->type == VIR_STORAGE_POOL_MPATH))   ||
               (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_RBD) &&
                (poolobj->def->type == VIR_STORAGE_POOL_RBD))     ||
+              (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE) &&
+               (poolobj->def->type == VIR_STORAGE_POOL_OPENVSTORAGE)) ||
               (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_SHEEPDOG) &&
                (poolobj->def->type == VIR_STORAGE_POOL_SHEEPDOG)) ||
               (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_GLUSTER) &&

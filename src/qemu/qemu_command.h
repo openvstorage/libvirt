@@ -186,7 +186,9 @@ char *qemuBuildNetworkDriveURI(int proto,
                                size_t nhosts,
                                virDomainDiskHostDefPtr hosts,
                                const char *username,
-                               const char *secret);
+                               const char *secret,
+                               bool ovs_has_snapshot_timeout,
+                               uint32_t snapshot_timeout);
 
 int qemuNetworkIfaceConnect(virDomainDefPtr def,
                             virConnectPtr conn,
@@ -320,6 +322,8 @@ int qemuGetDriveSourceString(int type,
                              virDomainDiskHostDefPtr hosts,
                              const char *username,
                              const char *secret,
-                             char **path);
+                             char **path,
+                             bool ovs_has_snapshot_timeout,
+                             uint32_t snapshot_timeout);
 
 #endif /* __QEMU_COMMAND_H__*/

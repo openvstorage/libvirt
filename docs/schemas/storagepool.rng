@@ -22,6 +22,7 @@
         <ref name='poolrbd'/>
         <ref name='poolsheepdog'/>
         <ref name='poolgluster'/>
+        <ref name='poolopenvstorage'/>
       </choice>
     </element>
   </define>
@@ -154,6 +155,16 @@
       <ref name='commonmetadata'/>
       <ref name='sizing'/>
       <ref name='sourcegluster'/>
+    </interleave>
+  </define>
+
+  <define name='poolopenvstorage'>
+    <attribute name='type'>
+      <value>openvstorage</value>
+    </attribute>
+    <interleave>
+      <ref name='commonmetadata'/>
+      <ref name='sizing'/>
     </interleave>
   </define>
 

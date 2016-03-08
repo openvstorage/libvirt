@@ -1,3 +1,9 @@
+libvirt (1.2.2-0ovs1.0-0ubuntu13.1.17) trusty; urgency=medium
+
+  * OpenvStorage support
+
+ -- Chrysostomos Nanakos <cnanakos@openvstorage.com>  Wed, 02 Mar 2016 16:58:31 +0100
+
 libvirt (1.2.2-0ubuntu13.1.17) trusty; urgency=medium
 
   * d/p/fix-util-don-t-fail-if-no-portdata-is-found.patch: 

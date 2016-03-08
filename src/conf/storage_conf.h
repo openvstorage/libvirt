@@ -119,17 +119,18 @@ struct _virStorageVolDefList {
 VIR_ENUM_DECL(virStorageVol)
 
 enum virStoragePoolType {
-    VIR_STORAGE_POOL_DIR,      /* Local directory */
-    VIR_STORAGE_POOL_FS,       /* Local filesystem */
-    VIR_STORAGE_POOL_NETFS,    /* Networked filesystem - eg NFS, GFS, etc */
-    VIR_STORAGE_POOL_LOGICAL,  /* Logical volume groups / volumes */
-    VIR_STORAGE_POOL_DISK,     /* Disk partitions */
-    VIR_STORAGE_POOL_ISCSI,    /* iSCSI targets */
-    VIR_STORAGE_POOL_SCSI,     /* SCSI HBA */
-    VIR_STORAGE_POOL_MPATH,    /* Multipath devices */
-    VIR_STORAGE_POOL_RBD,      /* RADOS Block Device */
-    VIR_STORAGE_POOL_SHEEPDOG, /* Sheepdog device */
-    VIR_STORAGE_POOL_GLUSTER,  /* Gluster device */
+    VIR_STORAGE_POOL_DIR,           /* Local directory */
+    VIR_STORAGE_POOL_FS,            /* Local filesystem */
+    VIR_STORAGE_POOL_NETFS,         /* Networked filesystem - eg NFS, GFS, etc */
+    VIR_STORAGE_POOL_LOGICAL,       /* Logical volume groups / volumes */
+    VIR_STORAGE_POOL_DISK,          /* Disk partitions */
+    VIR_STORAGE_POOL_ISCSI,         /* iSCSI targets */
+    VIR_STORAGE_POOL_SCSI,          /* SCSI HBA */
+    VIR_STORAGE_POOL_MPATH,         /* Multipath devices */
+    VIR_STORAGE_POOL_RBD,           /* RADOS Block Device */
+    VIR_STORAGE_POOL_SHEEPDOG,      /* Sheepdog device */
+    VIR_STORAGE_POOL_GLUSTER,       /* Gluster device */
+    VIR_STORAGE_POOL_OPENVSTORAGE,  /* OpenvStorage volumes */
 
     VIR_STORAGE_POOL_LAST,
 };
@@ -564,17 +565,18 @@ VIR_ENUM_DECL(virStoragePartedFsType)
                 (VIR_CONNECT_LIST_STORAGE_POOLS_AUTOSTART |  \
                  VIR_CONNECT_LIST_STORAGE_POOLS_NO_AUTOSTART)
 
-# define VIR_CONNECT_LIST_STORAGE_POOLS_FILTERS_POOL_TYPE  \
-                (VIR_CONNECT_LIST_STORAGE_POOLS_DIR      | \
-                 VIR_CONNECT_LIST_STORAGE_POOLS_FS       | \
-                 VIR_CONNECT_LIST_STORAGE_POOLS_NETFS    | \
-                 VIR_CONNECT_LIST_STORAGE_POOLS_LOGICAL  | \
-                 VIR_CONNECT_LIST_STORAGE_POOLS_DISK     | \
-                 VIR_CONNECT_LIST_STORAGE_POOLS_ISCSI    | \
-                 VIR_CONNECT_LIST_STORAGE_POOLS_SCSI     | \
-                 VIR_CONNECT_LIST_STORAGE_POOLS_MPATH    | \
-                 VIR_CONNECT_LIST_STORAGE_POOLS_RBD      | \
-                 VIR_CONNECT_LIST_STORAGE_POOLS_SHEEPDOG | \
+# define VIR_CONNECT_LIST_STORAGE_POOLS_FILTERS_POOL_TYPE           \
+                (VIR_CONNECT_LIST_STORAGE_POOLS_DIR               | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_FS                | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_NETFS             | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_LOGICAL           | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_DISK              | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_ISCSI             | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_SCSI              | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_MPATH             | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_RBD               | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE      | \
+                 VIR_CONNECT_LIST_STORAGE_POOLS_SHEEPDOG          | \
                  VIR_CONNECT_LIST_STORAGE_POOLS_GLUSTER)
 
 # define VIR_CONNECT_LIST_STORAGE_POOLS_FILTERS_ALL                  \

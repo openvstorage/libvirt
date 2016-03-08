@@ -560,6 +560,7 @@ enum virDomainDiskProtocol {
     VIR_DOMAIN_DISK_PROTOCOL_FTP,
     VIR_DOMAIN_DISK_PROTOCOL_FTPS,
     VIR_DOMAIN_DISK_PROTOCOL_TFTP,
+    VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE,
 
     VIR_DOMAIN_DISK_PROTOCOL_LAST
 };
@@ -772,6 +773,10 @@ struct _virDomainDiskDef {
 
     size_t nseclabels;
     virSecurityDeviceLabelDefPtr *seclabels;
+
+    /* OpenvStorage specific */
+    bool ovs_has_snapshot_timeout;
+    uint32_t snapshot_timeout;
 };
 
 
@@ -2400,7 +2405,9 @@ int virDomainDiskSourceDefFormatInternal(virBufferPtr buf,
                                          size_t nseclabels,
                                          virSecurityDeviceLabelDefPtr *seclabels,
                                          virDomainDiskSourcePoolDefPtr srcpool,
-                                         unsigned int flags);
+                                         unsigned int flags,
+                                         bool ovs_has_snapshot_timeout,
+                                         uint32_t snapshot_timeout);
 
 int virDomainNetDefFormat(virBufferPtr buf,
                           virDomainNetDefPtr def,
@@ -2446,7 +2453,9 @@ int virDomainDiskSourceDefParse(xmlNodePtr node,
                                 int *proto,
                                 size_t *nhosts,
                                 virDomainDiskHostDefPtr *hosts,
-                                virDomainDiskSourcePoolDefPtr *srcpool);
+                                virDomainDiskSourcePoolDefPtr *srcpool,
+                                bool *ovs_has_snapshot_timeout,
+                                uint32_t *snapshot_timeout);
 
 bool virDomainHasDiskMirror(virDomainObjPtr vm);
 

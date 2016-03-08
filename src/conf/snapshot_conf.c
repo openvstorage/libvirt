@@ -154,7 +154,9 @@ virDomainSnapshotDiskDefParseXML(xmlNodePtr node,
                                             &def->protocol,
                                             &def->nhosts,
                                             &def->hosts,
-                                            NULL) < 0)
+                                            NULL,
+                                            &def->ovs_has_snapshot_timeout,
+                                            &def->snapshot_timeout) < 0)
                 goto cleanup;
 
         } else if (!def->format &&
@@ -637,7 +639,7 @@ virDomainSnapshotDiskDefFormat(virBufferPtr buf,
                                          disk->protocol,
                                          disk->nhosts,
                                          disk->hosts,
-                                         0, NULL, NULL, 0);
+                                         0, NULL, NULL, 0, false, 0);
 
     virBufferAddLit(buf, "    </disk>\n");
 }

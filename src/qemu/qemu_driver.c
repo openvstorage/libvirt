@@ -11977,7 +11977,9 @@ qemuDomainSnapshotDiskGetSourceString(virDomainSnapshotDiskDefPtr disk,
                                     disk->hosts,
                                     NULL,
                                     NULL,
-                                    source);
+                                    source,
+                                    false,
+                                    0);
 }
 
 
@@ -12320,6 +12322,7 @@ qemuDomainSnapshotPrepareDiskExternalBackingInactive(virDomainDiskDefPtr disk)
         switch ((enum virDomainDiskProtocol) disk->protocol) {
         case VIR_DOMAIN_DISK_PROTOCOL_NBD:
         case VIR_DOMAIN_DISK_PROTOCOL_RBD:
+        case VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE:
         case VIR_DOMAIN_DISK_PROTOCOL_SHEEPDOG:
         case VIR_DOMAIN_DISK_PROTOCOL_GLUSTER:
         case VIR_DOMAIN_DISK_PROTOCOL_ISCSI:
@@ -12384,6 +12387,7 @@ qemuDomainSnapshotPrepareDiskExternalOverlayActive(virDomainSnapshotDiskDefPtr d
 
         case VIR_DOMAIN_DISK_PROTOCOL_NBD:
         case VIR_DOMAIN_DISK_PROTOCOL_RBD:
+        case VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE:
         case VIR_DOMAIN_DISK_PROTOCOL_SHEEPDOG:
         case VIR_DOMAIN_DISK_PROTOCOL_ISCSI:
         case VIR_DOMAIN_DISK_PROTOCOL_HTTP:
@@ -12525,6 +12529,7 @@ qemuDomainSnapshotPrepareDiskInternal(virConnectPtr conn,
         switch ((enum virDomainDiskProtocol) disk->protocol) {
         case VIR_DOMAIN_DISK_PROTOCOL_NBD:
         case VIR_DOMAIN_DISK_PROTOCOL_RBD:
+        case VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE:
         case VIR_DOMAIN_DISK_PROTOCOL_SHEEPDOG:
         case VIR_DOMAIN_DISK_PROTOCOL_GLUSTER:
         case VIR_DOMAIN_DISK_PROTOCOL_ISCSI:

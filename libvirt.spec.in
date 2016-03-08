@@ -300,6 +300,7 @@
     %define with_storage_iscsi 0
     %define with_storage_mpath 0
     %define with_storage_rbd 0
+    %define with_storage_openvstorage 0
     %define with_storage_sheepdog 0
     %define with_storage_gluster 0
     %define with_storage_disk 0
@@ -1311,6 +1312,10 @@ driver
     %define _without_storage_rbd --without-storage-rbd
 %endif
 
+%if ! %{with_storage_openvstorage}
+    %define _without_storage_openvstorage --without-storage-openvstorage
+%endif
+
 %if ! %{with_storage_sheepdog}
     %define _without_storage_sheepdog --without-storage-sheepdog
 %endif
@@ -1448,6 +1453,7 @@ driver
            %{?_without_storage_disk} \
            %{?_without_storage_mpath} \
            %{?_without_storage_rbd} \
+           %{?_without_storage_openvstorage} \
            %{?_without_storage_sheepdog} \
            %{?_without_storage_gluster} \
            %{?_without_numactl} \

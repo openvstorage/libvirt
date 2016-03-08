@@ -272,7 +272,8 @@ VIR_ENUM_IMPL(virDomainDiskProtocol, VIR_DOMAIN_DISK_PROTOCOL_LAST,
               "https",
               "ftp",
               "ftps",
-              "tftp")
+              "tftp",
+              "openvstorage")
 
 VIR_ENUM_IMPL(virDomainDiskProtocolTransport, VIR_DOMAIN_DISK_PROTO_TRANS_LAST,
               "tcp",
@@ -4987,7 +4988,9 @@ virDomainDiskSourceDefParse(xmlNodePtr node,
                             int *proto,
                             size_t *nhosts,
                             virDomainDiskHostDefPtr *hosts,
-                            virDomainDiskSourcePoolDefPtr *srcpool)
+                            virDomainDiskSourcePoolDefPtr *srcpool,
+                            bool *ovs_has_snapshot_timeout,
+                            uint32_t *snapshot_timeout)
 {
     char *protocol = NULL;
     char *transport = NULL;
@@ -5025,6 +5028,26 @@ virDomainDiskSourceDefParse(xmlNodePtr node,
             virReportError(VIR_ERR_XML_ERROR, "%s",
                            _("missing name for disk source"));
             goto cleanup;
+        }
+
+        if (*proto == VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE)
+        {
+            char *timeoutStr = NULL;
+            if ((timeoutStr = virXMLPropString(node, "snapshot-timeout")))
+            {
+                if (virStrToLong_ui(timeoutStr, NULL, 10, snapshot_timeout) < 0)
+                {
+                    virReportError(VIR_ERR_XML_ERROR,
+                                   _("invalid snapshot timeout attribute '%s'"),
+                                   timeoutStr);
+                    goto cleanup;
+                }
+                *ovs_has_snapshot_timeout = true;
+            }
+            else
+            {
+                *ovs_has_snapshot_timeout = false;
+            }
         }
 
         child = node->children;
@@ -5208,7 +5231,9 @@ virDomainDiskDefParseXML(virDomainXMLOptionPtr xmlopt,
                                                 &def->protocol,
                                                 &def->nhosts,
                                                 &def->hosts,
-                                                &def->srcpool) < 0)
+                                                &def->srcpool,
+                                                &def->ovs_has_snapshot_timeout,
+                                                &def->snapshot_timeout) < 0)
                     goto error;
 
                 if (def->type == VIR_DOMAIN_DISK_TYPE_NETWORK) {
@@ -14777,7 +14802,9 @@ virDomainDiskSourceDefFormatInternal(virBufferPtr buf,
                                      size_t nseclabels,
                                      virSecurityDeviceLabelDefPtr *seclabels,
                                      virDomainDiskSourcePoolDefPtr srcpool,
-                                     unsigned int flags)
+                                     unsigned int flags,
+                                     bool ovs_has_snapshot_timeout,
+                                     uint32_t snapshot_timeout)
 {
     size_t n;
     const char *startupPolicy = NULL;
@@ -14814,6 +14841,10 @@ virDomainDiskSourceDefFormatInternal(virBufferPtr buf,
             virBufferAsprintf(buf, "      <source protocol='%s'",
                               virDomainDiskProtocolTypeToString(protocol));
             virBufferEscapeString(buf, " name='%s'", src);
+            if (ovs_has_snapshot_timeout)
+            {
+                virBufferAsprintf(buf, " snapshot-timeout='%d'", snapshot_timeout);
+            }
 
             if (nhosts == 0) {
                 virBufferAddLit(buf, "/>\n");
@@ -14878,7 +14909,9 @@ virDomainDiskSourceDefFormat(virBufferPtr buf,
                                                 def->nseclabels,
                                                 def->seclabels,
                                                 def->srcpool,
-                                                flags);
+                                                flags,
+                                                def->ovs_has_snapshot_timeout,
+                                                def->snapshot_timeout);
 }
 
 

@@ -3297,6 +3297,60 @@ error:
     return -1;
 }
 
+static int qemuParseOpenvStorageString(virDomainDiskDefPtr disk)
+{
+    char *options = NULL;
+    char *p, *e, *next;
+
+    disk->ovs_has_snapshot_timeout = false;
+    p = strchr(disk->src, ':');
+    if (p) {
+        if (VIR_STRDUP(options, p + 1) < 0)
+            goto error;
+        *p = '\0';
+    }
+
+    if (!options)
+        return 0;
+
+    p = options;
+    while (*p) {
+        for (e = p; *e && *e != ':'; ++e) {
+            if (*e == '\\') {
+                e++;
+                if (*e == '\0')
+                    break;
+            }
+        }
+        if (*e == '\0') {
+            next = e;
+        } else {
+            next = e + 1;
+            *e = '\0';
+        }
+
+        if (STRPREFIX(p, "snapshot-timeout="))
+        {
+           disk->ovs_has_snapshot_timeout = true;
+           if (virStrToLong_ui(p + strlen("snapshot-timeout="),
+                               NULL,
+                               10,
+                               &disk->snapshot_timeout) == -1) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("invalid argument for snapshot-timeout"));
+                goto error;
+           }
+        }
+        p = next;
+    }
+    VIR_FREE(options);
+    return 0;
+
+error:
+    VIR_FREE(options);
+    return -1;
+}
+
 /* disk->src initially has everything after the rbd: prefix */
 static int qemuParseRBDString(virDomainDiskDefPtr disk)
 {
@@ -3602,6 +3656,7 @@ qemuNetworkDriveGetPort(int protocol,
             return 0;
 
         case VIR_DOMAIN_DISK_PROTOCOL_RBD:
+        case VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE:
         case VIR_DOMAIN_DISK_PROTOCOL_LAST:
             /* not aplicable */
             return -1;
@@ -3618,7 +3673,9 @@ qemuBuildNetworkDriveURI(int protocol,
                          size_t nhosts,
                          virDomainDiskHostDefPtr hosts,
                          const char *username,
-                         const char *secret)
+                         const char *secret,
+                         bool ovs_has_snapshot_timeout,
+                         uint32_t snapshot_timeout)
 {
     char *ret = NULL;
     virBuffer buf = VIR_BUFFER_INITIALIZER;
@@ -3809,6 +3866,29 @@ qemuBuildNetworkDriveURI(int protocol,
             ret = virBufferContentAndReset(&buf);
             break;
 
+        case VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE:
+            if (strchr(src, ':')) {
+                virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+                               _("':' not allowed in OpenvStorage source volume name '%s'"),
+                               src);
+                goto cleanup;
+            }
+
+            virBufferStrcat(&buf, "openvstorage:", src, NULL);
+
+            if (ovs_has_snapshot_timeout)
+            {
+                virBufferAddLit(&buf, ":snapshot-timeout=");
+                virBufferAsprintf(&buf, "%d", snapshot_timeout);
+            }
+
+            if (virBufferError(&buf) < 0) {
+                virReportOOMError();
+                goto cleanup;
+            }
+
+            ret = virBufferContentAndReset(&buf);
+            break;
 
         case VIR_DOMAIN_DISK_PROTOCOL_LAST:
             goto cleanup;
@@ -3830,7 +3910,9 @@ qemuGetDriveSourceString(int type,
                          virDomainDiskHostDefPtr hosts,
                          const char *username,
                          const char *secret,
-                         char **path)
+                         char **path,
+                         bool ovs_has_snapshot_timeout,
+                         uint32_t snapshot_timeout)
 {
     *path = NULL;
 
@@ -3852,7 +3934,9 @@ qemuGetDriveSourceString(int type,
                                                nhosts,
                                                hosts,
                                                username,
-                                               secret)))
+                                               secret,
+                                               ovs_has_snapshot_timeout,
+                                               snapshot_timeout)))
             return -1;
         break;
 
@@ -3906,7 +3990,9 @@ qemuDomainDiskGetSourceString(virConnectPtr conn,
                                    disk->hosts,
                                    disk->auth.username,
                                    secret,
-                                   source);
+                                   source,
+                                   disk->ovs_has_snapshot_timeout,
+                                   disk->snapshot_timeout);
 
 cleanup:
     VIR_FREE(secret);
@@ -10182,6 +10268,21 @@ qemuParseCommandLineDisk(virDomainXMLOptionPtr xmlopt,
 
                     if (qemuParseNBDString(def) < 0)
                         goto error;
+
+                } else if (STRPREFIX(def->src, "openvstorage:")) {
+                    char *p = def->src;
+
+                    def->type = VIR_DOMAIN_DISK_TYPE_NETWORK;
+                    def->protocol = VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE;
+                    if (VIR_STRDUP(def->src, p + strlen("openvstorage:")) < 0)
+                        goto error;
+
+                    if (qemuParseOpenvStorageString(def) < 0) {
+                        VIR_FREE(p);
+                        goto error;
+                    }
+
+                    VIR_FREE(p);
                 } else if (STRPREFIX(def->src, "rbd:")) {
                     char *p = def->src;
 
@@ -11516,6 +11617,10 @@ qemuParseCommandLine(virCapsPtr qemuCaps,
                 switch (disk->protocol) {
                 case VIR_DOMAIN_DISK_PROTOCOL_NBD:
                     if (qemuParseNBDString(disk) < 0)
+                        goto error;
+                    break;
+                case VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE:
+                    if (qemuParseOpenvStorageString(disk) < 0)
                         goto error;
                     break;
                 case VIR_DOMAIN_DISK_PROTOCOL_RBD:

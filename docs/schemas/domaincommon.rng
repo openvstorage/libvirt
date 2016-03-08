@@ -1324,6 +1324,7 @@
         <value>ftp</value>
         <value>ftps</value>
         <value>tftp</value>
+        <value>openvstorage</value>
       </choice>
     </attribute>
     <optional>
