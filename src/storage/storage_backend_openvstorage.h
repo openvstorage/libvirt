@@ -26,5 +26,7 @@
 # include "storage_backend.h"
 
 extern virStorageBackend virStorageBackendOpenvStorage;
+extern virStorageBackend virStorageBackendOpenvStorageTCP;
+extern virStorageBackend virStorageBackendOpenvStorageRDMA;
 
 #endif /* __VIR_STORAGE_BACKEND_OPENVSTORAGE_H__ */

@@ -123,6 +123,8 @@ static virStorageBackendPtr backends[] = {
 #endif
 #if WITH_STORAGE_OPENVSTORAGE
     &virStorageBackendOpenvStorage,
+    &virStorageBackendOpenvStorageTCP,
+    &virStorageBackendOpenvStorageRDMA,
 #endif
     NULL
 };

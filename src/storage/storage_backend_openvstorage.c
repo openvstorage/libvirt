@@ -1,21 +1,20 @@
 /*
  * storage_backend_openvstorage.c: storage backend for OpenvStorage handling
  *
- * Copyright (C) 2016 iNuron NV.
+ * Copyright (C) 2016 iNuron NV
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2.1 of the License, or (at your option) any later version.
+ * This file is part of Open vStorage Open Source Edition (OSE),
+ * as available from
  *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ *      http://www.openvstorage.org and
+ *      http://www.openvstorage.com.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library.  If not, see
- * <http://www.gnu.org/licenses/>.
+ * This file is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU Affero General Public License v3 (GNU AGPLv3)
+ * as published by the Free Software Foundation, in version 3 as it comes in
+ * the LICENSE.txt file of the Open vStorage OSE distribution.
+ * Open vStorage is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY of any kind.
  *
  * Author: Chrysostomos Nanakos <cnanakos@openvstorage.com>
  */
@@ -34,9 +33,11 @@
 
 #include <sys/types.h>
 #include <fcntl.h>
+#include <assert.h>
 #include <openvstorage/volumedriver.h>
 
 #define VIR_FROM_THIS VIR_FROM_STORAGE
+#define OPENVSTORAGE_DFL_PORT   21321
 
 static int
 virStorageBackendOpenvStorageCreateVol(virConnectPtr conn ATTRIBUTE_UNUSED,
@@ -69,51 +70,260 @@ virStorageBackendOpenvStorageCreateVol(virConnectPtr conn ATTRIBUTE_UNUSED,
 }
 
 static int
+virStorageBackendOpenvStorageBuildVolHelper(virStoragePoolObjPtr pool,
+                                            virStorageVolDefPtr vol,
+                                            unsigned int flags,
+                                            const char *transport,
+                                            bool is_network)
+{
+    int ret;
+    int port = OPENVSTORAGE_DFL_PORT;
+    virCheckFlags(0, -1);
+
+    if (is_network) {
+        if (pool->def->source.nhost > 0 && pool->def->source.nhost != 1) {
+            return -1;
+        }
+    }
+
+    ovs_ctx_attr_t *ctx_attr = ovs_ctx_attr_new();
+    assert(ctx_attr != NULL);
+
+    if (is_network) {
+        const char *hostname = pool->def->source.hosts[0].name;
+        if (pool->def->source.hosts[0].port) {
+            port = pool->def->source.hosts[0].port;
+        }
+        ret = ovs_ctx_attr_set_transport(ctx_attr,
+                                         transport,
+                                         hostname,
+                                         port);
+    } else {
+        ret = ovs_ctx_attr_set_transport(ctx_attr,
+                                         transport,
+                                         NULL,
+                                         0);
+    }
+    if (ret < 0) {
+        virReportSystemError(errno, "%s",
+                             _("failed to set transport type"));
+        ovs_ctx_attr_destroy(ctx_attr);
+        return ret;
+    }
+    ovs_ctx_t *ctx = ovs_ctx_new(ctx_attr);
+    if (ctx == NULL) {
+        virReportSystemError(errno, "%s",
+                             _("cannot create context"));
+        ovs_ctx_attr_destroy(ctx_attr);
+        return -1;
+    }
+    ret = ovs_create_volume(ctx, vol->name, vol->capacity);
+    ovs_ctx_destroy(ctx);
+    ovs_ctx_attr_destroy(ctx_attr);
+    return ret;
+}
+
+static int
+virStorageBackendOpenvStorageBuildVolTCP(virConnectPtr conn ATTRIBUTE_UNUSED,
+                                         virStoragePoolObjPtr pool,
+                                         virStorageVolDefPtr vol,
+                                         unsigned int flags)
+{
+    return virStorageBackendOpenvStorageBuildVolHelper(pool,
+                                                       vol,
+                                                       flags,
+                                                       "tcp",
+                                                       true);
+}
+
+static int
+virStorageBackendOpenvStorageBuildVolRDMA(virConnectPtr conn ATTRIBUTE_UNUSED,
+                                         virStoragePoolObjPtr pool,
+                                         virStorageVolDefPtr vol,
+                                         unsigned int flags)
+{
+    return virStorageBackendOpenvStorageBuildVolHelper(pool,
+                                                       vol,
+                                                       flags,
+                                                       "rdma",
+                                                       true);
+}
+
+static int
 virStorageBackendOpenvStorageBuildVol(virConnectPtr conn ATTRIBUTE_UNUSED,
-                                      virStoragePoolObjPtr pool ATTRIBUTE_UNUSED,
+                                      virStoragePoolObjPtr pool,
                                       virStorageVolDefPtr vol,
                                       unsigned int flags)
 {
+    return virStorageBackendOpenvStorageBuildVolHelper(pool,
+                                                       vol,
+                                                       flags,
+                                                       "shm",
+                                                       false);
+}
+
+static int
+virStorageBackendOpenvStorageDeleteVolHelper(virStoragePoolObjPtr pool,
+                                             virStorageVolDefPtr vol,
+                                             int flags,
+                                             const char* transport,
+                                             bool is_network)
+{
+    int ret;
+    int port = OPENVSTORAGE_DFL_PORT;
     virCheckFlags(0, -1);
-    return ovs_create_volume(vol->name, vol->capacity);
+
+    if (is_network) {
+        if (pool->def->source.nhost > 0 && pool->def->source.nhost != 1) {
+            return -1;
+        }
+    }
+
+    ovs_ctx_attr_t *ctx_attr = ovs_ctx_attr_new();
+    assert(ctx_attr != NULL);
+
+    if (is_network) {
+        const char *hostname = pool->def->source.hosts[0].name;
+        if (pool->def->source.hosts[0].port) {
+            port = pool->def->source.hosts[0].port;
+        }
+        ret = ovs_ctx_attr_set_transport(ctx_attr,
+                                         transport,
+                                         hostname,
+                                         port);
+    } else {
+        ret = ovs_ctx_attr_set_transport(ctx_attr,
+                                         transport,
+                                         NULL,
+                                         0);
+    }
+    if (ret < 0) {
+        virReportSystemError(errno, "%s",
+                             _("cannot set transport type"));
+        ovs_ctx_attr_destroy(ctx_attr);
+        return ret;
+    }
+    ovs_ctx_t *ctx = ovs_ctx_new(ctx_attr);
+    if (ctx == NULL) {
+        virReportSystemError(errno, "%s",
+                             _("failed to create context"));
+        ovs_ctx_attr_destroy(ctx_attr);
+        return -1;
+    }
+    ret = ovs_remove_volume(ctx, vol->name);
+    ovs_ctx_destroy(ctx);
+    ovs_ctx_attr_destroy(ctx_attr);
+    return ret;
+}
+
+static int
+virStorageBackendOpenvStorageDeleteVolTCP(virConnectPtr conn ATTRIBUTE_UNUSED,
+                                          virStoragePoolObjPtr pool,
+                                          virStorageVolDefPtr vol,
+                                          unsigned int flags)
+{
+    return virStorageBackendOpenvStorageDeleteVolHelper(pool,
+                                                        vol,
+                                                        flags,
+                                                        "tcp",
+                                                        true);
+}
+
+static int
+virStorageBackendOpenvStorageDeleteVolRDMA(virConnectPtr conn ATTRIBUTE_UNUSED,
+                                          virStoragePoolObjPtr pool,
+                                          virStorageVolDefPtr vol,
+                                          unsigned int flags)
+{
+    return virStorageBackendOpenvStorageDeleteVolHelper(pool,
+                                                        vol,
+                                                        flags,
+                                                        "rdma",
+                                                        true);
 }
 
 static int
 virStorageBackendOpenvStorageDeleteVol(virConnectPtr conn ATTRIBUTE_UNUSED,
-                                       virStoragePoolObjPtr pool ATTRIBUTE_UNUSED,
+                                       virStoragePoolObjPtr pool,
                                        virStorageVolDefPtr vol,
                                        unsigned int flags)
 {
-    virCheckFlags(0, -1);
-    return ovs_remove_volume(vol->name);
+    return virStorageBackendOpenvStorageDeleteVolHelper(pool,
+                                                        vol,
+                                                        flags,
+                                                        "shm",
+                                                        false);
 }
 
 static int
-virStorageBackendOpenvStorageRefreshVol(virConnectPtr conn ATTRIBUTE_UNUSED,
-                                        virStoragePoolObjPtr pool ATTRIBUTE_UNUSED,
-                                        virStorageVolDefPtr vol)
+virStorageBackendOpenvStorageRefreshVolHelper(virStoragePoolObjPtr pool,
+                                              virStorageVolDefPtr vol,
+                                              const char *transport,
+                                              bool is_network)
 {
     int r;
+    int port = OPENVSTORAGE_DFL_PORT;
     struct stat st;
-    ovs_ctx_t *ioctx = ovs_ctx_init(vol->name, O_RDWR);
 
-    if (ioctx == NULL)
-    {
-        virReportSystemError(0, _("failed to create context for volume '%s'"),
-                             vol->name);
+    if (is_network) {
+        if (pool->def->source.nhost > 0 && pool->def->source.nhost != 1) {
+            return -1;
+        }
+    }
+
+    ovs_ctx_attr_t *ctx_attr = ovs_ctx_attr_new();
+    assert(ctx_attr != NULL);
+
+    if (is_network) {
+        const char *hostname = pool->def->source.hosts[0].name;
+        if (pool->def->source.hosts[0].port) {
+            port = pool->def->source.hosts[0].port;
+        }
+        r = ovs_ctx_attr_set_transport(ctx_attr,
+                                       transport,
+                                       hostname,
+                                       port);
+    } else {
+        r = ovs_ctx_attr_set_transport(ctx_attr,
+                                       transport,
+                                       NULL,
+                                       0);
+    }
+
+    if (r < 0) {
+        virReportSystemError(errno, "%s",
+                             _("failed to set transport type"));
+        ovs_ctx_attr_destroy(ctx_attr);
+        return r;
+    }
+
+    ovs_ctx_t *ctx = ovs_ctx_new(ctx_attr);
+    if (ctx == NULL) {
+        ovs_ctx_attr_destroy(ctx_attr);
         return -1;
     }
-    r = ovs_stat(ioctx, &st);
+    ovs_ctx_attr_destroy(ctx_attr);
+    r = ovs_ctx_init(ctx, vol->name, O_RDWR);
+
     if (r < 0)
     {
-        virReportSystemError(0, _("failed to stat volume '%s'"),
+        virReportSystemError(errno,
+                             _("failed to create context for volume '%s'"),
                              vol->name);
-        ovs_ctx_destroy(ioctx);
+        ovs_ctx_destroy(ctx);
+        return r;
+    }
+    r = ovs_stat(ctx, &st);
+    if (r < 0)
+    {
+        virReportSystemError(errno, _("failed to stat volume '%s'"),
+                             vol->name);
+        ovs_ctx_destroy(ctx);
         return -1;
     }
-    ignore_value(ovs_ctx_destroy(ioctx));
+    ignore_value(ovs_ctx_destroy(ctx));
     vol->capacity = st.st_size;
-    /*vol->allocation = st.st_blksize * st.st_blocks;*/
+    vol->allocation = st.st_blksize * st.st_blocks;
     vol->type = VIR_STORAGE_VOL_NETWORK;
 
     VIR_FREE(vol->key);
@@ -131,35 +341,110 @@ virStorageBackendOpenvStorageRefreshVol(virConnectPtr conn ATTRIBUTE_UNUSED,
 }
 
 static int
-virStorageBackendOpenvStorageRefreshPool(virConnectPtr conn,
-                                         virStoragePoolObjPtr pool)
+virStorageBackendOpenvStorageRefreshVolTCP(virConnectPtr conn ATTRIBUTE_UNUSED,
+                                           virStoragePoolObjPtr pool,
+                                           virStorageVolDefPtr vol)
+{
+    return virStorageBackendOpenvStorageRefreshVolHelper(pool,
+                                                         vol,
+                                                         "tcp",
+                                                         true);
+}
+
+static int
+virStorageBackendOpenvStorageRefreshVolRDMA(virConnectPtr conn ATTRIBUTE_UNUSED,
+                                            virStoragePoolObjPtr pool,
+                                            virStorageVolDefPtr vol)
+{
+    return virStorageBackendOpenvStorageRefreshVolHelper(pool,
+                                                         vol,
+                                                         "rdma",
+                                                         true);
+}
+
+static int
+virStorageBackendOpenvStorageRefreshVol(virConnectPtr conn ATTRIBUTE_UNUSED,
+                                        virStoragePoolObjPtr pool,
+                                        virStorageVolDefPtr vol)
+{
+    return virStorageBackendOpenvStorageRefreshVolHelper(pool,
+                                                         vol,
+                                                         "shm",
+                                                         false);
+}
+
+static int
+virStorageBackendOpenvStorageRefreshPoolHelper(virConnectPtr conn,
+                                               virStoragePoolObjPtr pool,
+                                               const char *transport,
+                                               bool is_network)
 {
     const uint64_t fs_size = 64ULL << 40;
     size_t max_size = 1024;
     char *name, *names = NULL;
     int len = -1;
     int r = -1;
+    int port = OPENVSTORAGE_DFL_PORT;
     pool->def->capacity = fs_size;
     pool->def->available = fs_size;
     pool->def->capacity = fs_size;
+
+    if (is_network) {
+        if (pool->def->source.nhost > 0 && pool->def->source.nhost != 1) {
+            return -1;
+        }
+    }
+
+    ovs_ctx_attr_t *ctx_attr = ovs_ctx_attr_new();
+    assert(ctx_attr != NULL);
+    if (is_network) {
+        const char *hostname = pool->def->source.hosts[0].name;
+        if (pool->def->source.hosts[0].port) {
+            port = pool->def->source.hosts[0].port;
+        }
+        r = ovs_ctx_attr_set_transport(ctx_attr,
+                                       transport,
+                                       hostname,
+                                       port);
+    } else {
+        r = ovs_ctx_attr_set_transport(ctx_attr,
+                                       transport,
+                                       NULL,
+                                       0);
+    }
+    if (r < 0) {
+        virReportSystemError(errno, "%s",
+                             _("failed to set transport type"));
+        ovs_ctx_attr_destroy(ctx_attr);
+        return r;
+    }
+
+    ovs_ctx_t *ctx = ovs_ctx_new(ctx_attr);
+    if (ctx == NULL) {
+        virReportSystemError(errno, "%s",
+                             _("failed to create context"));
+        ovs_ctx_attr_destroy(ctx_attr);
+        return -1;
+    }
+    ovs_ctx_attr_destroy(ctx_attr);
 
     while (true)
     {
         if (VIR_ALLOC_N(names, max_size) < 0)
             goto cleanup;
-
-        len = ovs_list_volumes(names, &max_size);
+        len = ovs_list_volumes(ctx, names, &max_size);
         if (len >= 0)
             break;
         if (len == -1 && errno != ERANGE)
         {
             virReportSystemError(errno, "%s",
-                                 _("A problem occured while listing OpenvStorage images"));
+                                 _("A problem occured while listing images"));
             goto cleanup;
         }
         VIR_FREE(names);
     }
 
+    ignore_value(ovs_ctx_destroy(ctx));
     for (name = names; name < names + max_size;) {
         virStorageVolDefPtr vol;
 
@@ -196,6 +481,35 @@ cleanup:
     return r;
 }
 
+static int
+virStorageBackendOpenvStorageRefreshPoolTCP(virConnectPtr conn,
+                                            virStoragePoolObjPtr pool)
+{
+    return virStorageBackendOpenvStorageRefreshPoolHelper(conn,
+                                                          pool,
+                                                          "tcp",
+                                                          true);
+}
+
+static int
+virStorageBackendOpenvStorageRefreshPoolRDMA(virConnectPtr conn,
+                                             virStoragePoolObjPtr pool)
+{
+    return virStorageBackendOpenvStorageRefreshPoolHelper(conn,
+                                                          pool,
+                                                          "rdma",
+                                                          true);
+}
+
+static int
+virStorageBackendOpenvStorageRefreshPool(virConnectPtr conn,
+                                         virStoragePoolObjPtr pool)
+{
+    return virStorageBackendOpenvStorageRefreshPoolHelper(conn,
+                                                          pool,
+                                                          "shm",
+                                                          false);
+}
 
 virStorageBackend virStorageBackendOpenvStorage = {
     .type = VIR_STORAGE_POOL_OPENVSTORAGE,
@@ -205,4 +519,24 @@ virStorageBackend virStorageBackendOpenvStorage = {
     .buildVol = virStorageBackendOpenvStorageBuildVol,
     .refreshVol = virStorageBackendOpenvStorageRefreshVol,
     .deleteVol = virStorageBackendOpenvStorageDeleteVol,
+};
+
+virStorageBackend virStorageBackendOpenvStorageTCP = {
+    .type = VIR_STORAGE_POOL_OPENVSTORAGE_TCP,
+
+    .refreshPool = virStorageBackendOpenvStorageRefreshPoolTCP,
+    .createVol = virStorageBackendOpenvStorageCreateVol,
+    .buildVol = virStorageBackendOpenvStorageBuildVolTCP,
+    .refreshVol = virStorageBackendOpenvStorageRefreshVolTCP,
+    .deleteVol = virStorageBackendOpenvStorageDeleteVolTCP,
+};
+
+virStorageBackend virStorageBackendOpenvStorageRDMA = {
+    .type = VIR_STORAGE_POOL_OPENVSTORAGE_RDMA,
+
+    .refreshPool = virStorageBackendOpenvStorageRefreshPoolRDMA,
+    .createVol = virStorageBackendOpenvStorageCreateVol,
+    .buildVol = virStorageBackendOpenvStorageBuildVolRDMA,
+    .refreshVol = virStorageBackendOpenvStorageRefreshVolRDMA,
+    .deleteVol = virStorageBackendOpenvStorageDeleteVolRDMA,
 };

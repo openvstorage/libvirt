@@ -65,6 +65,10 @@
 #define VIO_ADDR_SERIAL 0x30000000ul
 #define VIO_ADDR_NVRAM 0x3000ul
 
+
+/* OpenvStorage Edge default port */
+#define OPENVSTORAGE_DFL_PORT   "21321"
+
 VIR_ENUM_DECL(virDomainDiskQEMUBus)
 VIR_ENUM_IMPL(virDomainDiskQEMUBus, VIR_DOMAIN_DISK_BUS_LAST,
               "ide",
@@ -3297,57 +3301,128 @@ error:
     return -1;
 }
 
+static int qemuOpenvStorageStrStart(const char *str,
+                                    const char *val,
+                                    const char **ptr)
+{
+    const char *pp, *q;
+    pp = str;
+    q = val;
+    while (*q != '\0') {
+        if (*pp != *q)
+            return 0;
+        pp++;
+        q++;
+    }
+    if (ptr)
+        *ptr = pp;
+    return 1;
+}
+
 static int qemuParseOpenvStorageString(virDomainDiskDefPtr disk)
 {
-    char *options = NULL;
-    char *p, *e, *next;
+    bool is_network = false;
+    const char *a;
+    char *endptr, *inetaddr, *p, *t, *ptoken;
+    char *tokens[3];
+    unsigned long timeout;
+    virDomainDiskHostDefPtr h = NULL;
+
+    if (VIR_ALLOC(h) < 0) {
+        return -1;
+    }
 
     disk->ovs_has_snapshot_timeout = false;
-    p = strchr(disk->src, ':');
-    if (p) {
-        if (VIR_STRDUP(options, p + 1) < 0)
-            goto error;
-        *p = '\0';
+    if (strstr(disk->src, "openvstorage+tcp"))
+    {
+        h->transport = VIR_DOMAIN_DISK_PROTO_TRANS_TCP;
+        if (VIR_STRDUP(p, disk->src + strlen("openvstorage+tcp:")) < 0) {
+            return -1;
+        }
+        is_network = true;
+    } else if(strstr(disk->src, "openvstorage+rdma")) {
+        h->transport = VIR_DOMAIN_DISK_PROTO_TRANS_RDMA;
+        if (VIR_STRDUP(p, disk->src + strlen("openvstorage+rdma:")) < 0) {
+            return -1;
+        }
+        is_network = true;
+    } else {
+        VIR_FREE(h);
+        if (VIR_STRDUP(p, disk->src + strlen("openvstorage:")) < 0) {
+            return -1;
+        }
     }
 
-    if (!options)
-        return 0;
+    disk->nhosts = 0;
+    if (is_network) {
+        tokens[0] = strsep(&p, "/");
+        tokens[1] = strsep(&p, ":");
+        tokens[2] = strsep(&p, "\0");
+    } else {
+        tokens[0] = strsep(&p, ":");
+        tokens[1] = strsep(&p, "\0");
+    }
 
-    p = options;
-    while (*p) {
-        for (e = p; *e && *e != ':'; ++e) {
-            if (*e == '\\') {
-                e++;
-                if (*e == '\0')
-                    break;
-            }
-        }
-        if (*e == '\0') {
-            next = e;
-        } else {
-            next = e + 1;
-            *e = '\0';
-        }
+    if (is_network && ((tokens[0] && !strlen(tokens[0])) ||
+                       (tokens[1] && !strlen(tokens[1])))) {
+        goto error;
+    } else if(!is_network && tokens[0] && !strlen(tokens[0])) {
+        goto error;
+    }
 
-        if (STRPREFIX(p, "snapshot-timeout="))
-        {
-           disk->ovs_has_snapshot_timeout = true;
-           if (virStrToLong_ui(p + strlen("snapshot-timeout="),
-                               NULL,
-                               10,
-                               &disk->snapshot_timeout) == -1) {
-                virReportError(VIR_ERR_INTERNAL_ERROR,
-                               _("invalid argument for snapshot-timeout"));
+    if (is_network) {
+        if (!index(tokens[0], ':')) {
+            if (VIR_STRDUP(h->port, OPENVSTORAGE_DFL_PORT) < 0)
                 goto error;
-           }
+            if (VIR_STRDUP(h->name, tokens[0]) < 0)
+                goto error;
+        } else {
+            if (VIR_STRDUP(inetaddr, tokens[0]) < 0)
+                goto error;
+            if (VIR_STRDUP(h->name, strtok(inetaddr, ":")) < 0) {
+                VIR_FREE(inetaddr);
+                goto error;
+            }
+            ptoken = strtok(NULL, "\0");
+            if (ptoken != NULL) {
+                if (VIR_STRDUP(h->port, ptoken) < 0) {
+                    VIR_FREE(inetaddr);
+                    goto error;
+                }
+            } else {
+                VIR_FREE(inetaddr);
+                goto error;
+            }
+            VIR_FREE(inetaddr);
         }
-        p = next;
     }
-    VIR_FREE(options);
-    return 0;
 
+    t = is_network ? tokens[2] : tokens[1];
+    if (t != NULL && qemuOpenvStorageStrStart(t, "snapshot-timeout=", &a)) {
+        if (strlen(a) > 0) {
+            timeout = strtoul(a, &endptr, 10);
+            if (strlen(endptr)) {
+                goto error;
+            }
+            disk->snapshot_timeout = timeout;
+            disk->ovs_has_snapshot_timeout = true;
+        }
+    }
+    VIR_FREE(disk->src);
+    if (VIR_STRDUP(disk->src, is_network ? tokens[1] : tokens[0]) < 0) {
+        goto error;
+    }
+    if (is_network) {
+        disk->nhosts = 1;
+        disk->hosts = h;
+    }
+    VIR_FREE(p);
+    return 0;
 error:
-    VIR_FREE(options);
+    VIR_FREE(p);
+    if (is_network) {
+        VIR_FREE(h);
+    }
     return -1;
 }
 
@@ -3867,14 +3942,25 @@ qemuBuildNetworkDriveURI(int protocol,
             break;
 
         case VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE:
-            if (strchr(src, ':')) {
-                virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
-                               _("':' not allowed in OpenvStorage source volume name '%s'"),
-                               src);
+            if (nhosts > 0 && nhosts != 1) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("protocol '%s' accepts only one host"),
+                               virDomainDiskProtocolTypeToString(protocol));
                 goto cleanup;
             }
 
-            virBufferStrcat(&buf, "openvstorage:", src, NULL);
+            if (nhosts) {
+                virBufferAsprintf(&buf, "openvstorage+%s:%s",
+                                  virDomainDiskProtocolTransportTypeToString(hosts->transport),
+                                  hosts->name);
+                if (hosts->port) {
+                    virBufferAsprintf(&buf, ":%s/%s", hosts->port, src);
+                } else {
+                    virBufferAsprintf(&buf, "/%s", src);
+                }
+            } else {
+                virBufferStrcat(&buf, "openvstorage:", src, NULL);
+            }
 
             if (ovs_has_snapshot_timeout)
             {
@@ -10269,20 +10355,14 @@ qemuParseCommandLineDisk(virDomainXMLOptionPtr xmlopt,
                     if (qemuParseNBDString(def) < 0)
                         goto error;
 
-                } else if (STRPREFIX(def->src, "openvstorage:")) {
-                    char *p = def->src;
+                } else if (STRPREFIX(def->src, "openvstorage:") ||
+                           STRPREFIX(def->src, "openvstorage+")) {
 
                     def->type = VIR_DOMAIN_DISK_TYPE_NETWORK;
                     def->protocol = VIR_DOMAIN_DISK_PROTOCOL_OPENVSTORAGE;
-                    if (VIR_STRDUP(def->src, p + strlen("openvstorage:")) < 0)
-                        goto error;
-
                     if (qemuParseOpenvStorageString(def) < 0) {
-                        VIR_FREE(p);
                         goto error;
                     }
-
-                    VIR_FREE(p);
                 } else if (STRPREFIX(def->src, "rbd:")) {
                     char *p = def->src;
 
