@@ -47,7 +47,7 @@ Build-Depends: cdbs (>= 0.4.90~),
  openssh-client,
  netcat-openbsd,
  librbd-dev,
- volumedriver-dev (>= 5.7.2)
+ libovsvolumedriver-dev (>= 6.0.0)
 Build-Conflicts: dpkg-dev (= 1.15.3)
 Homepage: http://libvirt.org
 Standards-Version: 3.9.4
