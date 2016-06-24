@@ -1,3 +1,9 @@
+libvirt (1.2.2-0ovs1.0-0ubuntu13.1.19) trusty; urgency=medium
+
+  * Drop outdated and broken dependency on volumedriver-server
+
+ -- Arne Redlich <arne.redlich@openvstorage.com>  Fri, 24 Jun 2016 08:55:12 +0200
+
 libvirt (1.2.2-0ovs1.0-0ubuntu13.1.18) trusty; urgency=medium
 
   * Update to use libovsvolumedriver 6.0.0

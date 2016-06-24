@@ -65,8 +65,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends},
  iptables (>= 1.4.10),
  libvirt0 (= ${binary:Version}),
  logrotate,
- netcat-openbsd,
- volumedriver-server (>= 5.7.2)
+ netcat-openbsd
 Enhances: qemu, qemu-kvm, xen
 Section: admin
 Recommends:
