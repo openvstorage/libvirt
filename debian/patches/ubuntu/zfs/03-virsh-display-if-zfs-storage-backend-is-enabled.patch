@@ -1,0 +1,22 @@
+commit 6221b8944e04c5cb02d3882833c11ce2319d88f7
+Author: Roman Bogorodskiy <bogorodskiy@gmail.com>
+Date:   Sun Jan 3 05:25:35 2016 +0300
+
+    virsh: display if ZFS storage backend is enabled
+    
+    Make 'virsh -V' list ZFS storage backend if it's enabled.
+
+diff --git a/tools/virsh.c b/tools/virsh.c
+index 1a9a713..b96dbda 100644
+--- a/tools/virsh.c
++++ b/tools/virsh.c
+@@ -632,6 +632,9 @@ virshShowVersion(vshControl *ctl ATTRIBUTE_UNUSED)
+ #ifdef WITH_STORAGE_GLUSTER
+     vshPrint(ctl, " Gluster");
+ #endif
++#ifdef WITH_STORAGE_ZFS
++    vshPrint(ctl, " ZFS");
++#endif
+     vshPrint(ctl, "\n");
+ 
+     vshPrint(ctl, "%s", _(" Miscellaneous:"));

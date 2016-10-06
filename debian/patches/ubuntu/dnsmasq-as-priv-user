@@ -1,0 +1,182 @@
+Index: ubuntu-libvirt/src/network/bridge_driver.c
+===================================================================
+--- ubuntu-libvirt.orig/src/network/bridge_driver.c
++++ ubuntu-libvirt/src/network/bridge_driver.c
+@@ -953,7 +953,8 @@ networkDnsmasqConfContents(virNetworkObj
+                       "##    virsh net-edit %s\n"
+                       "## or other application using the libvirt API.\n"
+                       "##\n## dnsmasq conf file created by libvirt\n"
+-                      "strict-order\n",
++                      "strict-order\n"
++                      "user=libvirt-dnsmasq\n",
+                       network->def->name);
+ 
+     if (network->def->dns.forwarders) {
+Index: ubuntu-libvirt/tests/networkxml2confdata/dhcp6host-routed-network.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/dhcp6host-routed-network.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/dhcp6host-routed-network.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ except-interface=lo
+ bind-dynamic
+ interface=virbr1
+Index: ubuntu-libvirt/tests/networkxml2confdata/dhcp6-nat-network.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/dhcp6-nat-network.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/dhcp6-nat-network.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ except-interface=lo
+ bind-dynamic
+ interface=virbr0
+Index: ubuntu-libvirt/tests/networkxml2confdata/dhcp6-network.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/dhcp6-network.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/dhcp6-network.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ domain=mynet
+ expand-hosts
+ except-interface=lo
+Index: ubuntu-libvirt/tests/networkxml2confdata/isolated-network.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/isolated-network.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/isolated-network.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ except-interface=lo
+ bind-interfaces
+ listen-address=192.168.152.1
+Index: ubuntu-libvirt/tests/networkxml2confdata/nat-network.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/nat-network.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/nat-network.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ except-interface=lo
+ bind-dynamic
+ interface=virbr0
+Index: ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-forwarders.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/nat-network-dns-forwarders.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-forwarders.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ no-resolv
+ server=8.8.8.8
+ server=8.8.4.4
+Index: ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-forward-plain.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/nat-network-dns-forward-plain.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-forward-plain.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ except-interface=lo
+ bind-dynamic
+ interface=virbr0
+Index: ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-hosts.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/nat-network-dns-hosts.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-hosts.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ domain=example.com
+ expand-hosts
+ domain-needed
+Index: ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-srv-record.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/nat-network-dns-srv-record.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-srv-record.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ except-interface=lo
+ bind-dynamic
+ interface=virbr0
+Index: ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-srv-record-minimal.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/nat-network-dns-srv-record-minimal.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-srv-record-minimal.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ except-interface=lo
+ bind-interfaces
+ listen-address=192.168.122.1
+Index: ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-txt-record.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/nat-network-dns-txt-record.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/nat-network-dns-txt-record.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ except-interface=lo
+ bind-dynamic
+ interface=virbr0
+Index: ubuntu-libvirt/tests/networkxml2confdata/netboot-network.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/netboot-network.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/netboot-network.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ domain=example.com
+ expand-hosts
+ except-interface=lo
+Index: ubuntu-libvirt/tests/networkxml2confdata/netboot-proxy-network.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/netboot-proxy-network.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/netboot-proxy-network.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ domain=example.com
+ expand-hosts
+ except-interface=lo
+Index: ubuntu-libvirt/tests/networkxml2confdata/routed-network.conf
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2confdata/routed-network.conf
++++ ubuntu-libvirt/tests/networkxml2confdata/routed-network.conf
+@@ -5,6 +5,7 @@
+ ##
+ ## dnsmasq conf file created by libvirt
+ strict-order
++user=libvirt-dnsmasq
+ except-interface=lo
+ bind-dynamic
+ interface=virbr1

@@ -1,0 +1,25 @@
+Description: ask for no deny rule for readonly disk elements
+ Just because a disk element only requests read access doesn't mean
+ there may not be another readwrite request.
+ This should be forwarded upstream.
+Author: Serge Hallyn <serge.hallyn@ubuntu.com>
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/qemu/+bug/1554031
+
+Index: libvirt/src/security/virt-aa-helper.c
+===================================================================
+--- libvirt.orig/src/security/virt-aa-helper.c
++++ libvirt/src/security/virt-aa-helper.c
+@@ -940,11 +940,11 @@ add_file_path(virDomainDiskDefPtr disk,
+ 
+     if (depth == 0) {
+         if (disk->src->readonly)
+-            ret = vah_add_file(buf, path, "r");
++            ret = vah_add_file(buf, path, "R");
+         else
+             ret = vah_add_file(buf, path, "rw");
+     } else {
+-        ret = vah_add_file(buf, path, "r");
++        ret = vah_add_file(buf, path, "R");
+     }
+ 
+     if (ret != 0)

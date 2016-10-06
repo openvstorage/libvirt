@@ -1,0 +1,34 @@
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 3 Feb 2016 14:34:32 +0100
+Subject: [PATCH 2/7] schema: List allowed GIC versions
+
+This change allows to use "host" as a GIC version in the domain XML.
+
+Since we'll need to update the virGICVersion enumeration to support
+new GIC versions anyway, it makes sense to be a bit more strict in
+the schema as well and reject values that are not in the enumeration.
+
+Origin: https://libvirt.org/git/?p=libvirt.git;a=commit;h=2a7b11eafb671fc21121ca95e8f7192bc22d60e8
+Bug-Ubuntu: http://bugs.launchpad.net/bugs/1566564
+Last-Updated: 2016-05-19
+
+diff --git a/docs/schemas/domaincommon.rng b/docs/schemas/domaincommon.rng
+index 5deb17b..67af93a 100644
+--- a/docs/schemas/domaincommon.rng
++++ b/docs/schemas/domaincommon.rng
+@@ -4154,7 +4154,11 @@
+             <element name="gic">
+               <optional>
+                 <attribute name="version">
+-                  <ref name="positiveInteger"/>
++                  <choice>
++                    <value>host</value>
++                    <value>2</value>
++                    <value>3</value>
++                  </choice>
+                 </attribute>
+               </optional>
+             </element>
+-- 
+2.8.1
+

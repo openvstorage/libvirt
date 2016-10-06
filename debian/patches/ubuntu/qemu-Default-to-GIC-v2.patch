@@ -1,0 +1,51 @@
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 3 Feb 2016 19:49:07 +0100
+Subject: [PATCH 4/7] qemu: Default to GIC v2
+
+When a domain is configured to use GIC but no version has been
+specified by the user, default to GIC v2.
+
+Origin: https://libvirt.org/git/?p=libvirt.git;a=commit;h=5b2c2a1023ef4199c9162405008b42a51222b0b2
+Bug-Ubuntu: http://bugs.launchpad.net/bugs/1566564
+Last-Updated: 2016-05-19
+
+diff --git a/src/qemu/qemu_domain.c b/src/qemu/qemu_domain.c
+index 495c76b..7fbd5ef 100644
+--- a/src/qemu/qemu_domain.c
++++ b/src/qemu/qemu_domain.c
+@@ -1239,6 +1239,23 @@ qemuDomainDefAddDefaultDevices(virDomainDefPtr def,
+ }
+ 
+ 
++/**
++ * qemuDomainDefEnableDefaultFeatures:
++ * @def: domain definition
++ *
++ * Make sure that features that should be enabled by default are actually
++ * enabled and configure default values related to those features.
++ */
++static void
++qemuDomainDefEnableDefaultFeatures(virDomainDefPtr def)
++{
++    /* Default to GIC v2 if no version was specified */
++    if (def->features[VIR_DOMAIN_FEATURE_GIC] == VIR_TRISTATE_SWITCH_ON &&
++        def->gic_version == VIR_GIC_VERSION_NONE)
++        def->gic_version = VIR_GIC_VERSION_2;
++}
++
++
+ static int
+ qemuCanonicalizeMachine(virDomainDefPtr def, virQEMUCapsPtr qemuCaps)
+ {
+@@ -1290,6 +1307,8 @@ qemuDomainDefPostParse(virDomainDefPtr def,
+     if (qemuCanonicalizeMachine(def, qemuCaps) < 0)
+         goto cleanup;
+ 
++    qemuDomainDefEnableDefaultFeatures(def);
++
+     if (virSecurityManagerVerify(driver->securityManager, def) < 0)
+         goto cleanup;
+ 
+-- 
+2.8.1
+

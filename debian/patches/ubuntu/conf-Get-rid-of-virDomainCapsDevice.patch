@@ -1,0 +1,154 @@
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Thu, 10 Mar 2016 19:52:52 +0100
+Subject: [PATCH] conf: Get rid of virDomainCapsDevice
+
+The struct contains a single boolean field, 'supported':
+the meaning of this field is too generic to be limited to
+devices only, and in fact it's already being used for
+other things like loaders and OSs.
+
+Instead of trying to come up with a more generic name just
+get rid of the struct altogether.
+
+Origin: https://libvirt.org/git/?p=libvirt.git;a=commit;h=29980231db81396d9fddd8a7d90daeb817bff5c8
+Bug-Ubuntu: http://bugs.launchpad.net/bugs/1566564
+Last-Updated: 2016-05-19
+
+diff --git a/src/conf/domain_capabilities.c b/src/conf/domain_capabilities.c
+index 0e32f52..466c0c6 100644
+--- a/src/conf/domain_capabilities.c
++++ b/src/conf/domain_capabilities.c
+@@ -187,9 +187,9 @@ virDomainCapsStringValuesFormat(virBufferPtr buf,
+ #define FORMAT_PROLOGUE(item)                                       \
+     do {                                                            \
+         virBufferAsprintf(buf, "<" #item " supported='%s'%s\n",     \
+-                          item->device.supported ? "yes" : "no",    \
+-                          item->device.supported ? ">" : "/>");     \
+-        if (!item->device.supported)                                \
++                          item->supported ? "yes" : "no",           \
++                          item->supported ? ">" : "/>");            \
++        if (!item->supported)                                       \
+             return;                                                 \
+         virBufferAdjustIndent(buf, 2);                              \
+     } while (0)
+diff --git a/src/conf/domain_capabilities.h b/src/conf/domain_capabilities.h
+index 597ac75..3eacb35 100644
+--- a/src/conf/domain_capabilities.h
++++ b/src/conf/domain_capabilities.h
+@@ -44,16 +44,10 @@ struct _virDomainCapsStringValues {
+     size_t nvalues; /* number of strings */
+ };
+ 
+-typedef struct _virDomainCapsDevice virDomainCapsDevice;
+-typedef virDomainCapsDevice *virDomainCapsDevicePtr;
+-struct _virDomainCapsDevice {
+-    bool supported; /* true if <devtype> is supported by hypervisor */
+-};
+-
+ typedef struct _virDomainCapsLoader virDomainCapsLoader;
+ typedef virDomainCapsLoader *virDomainCapsLoaderPtr;
+ struct _virDomainCapsLoader {
+-    virDomainCapsDevice device;
++    bool supported;
+     virDomainCapsStringValues values;   /* Info about values for the element */
+     virDomainCapsEnum type;     /* Info about virDomainLoader */
+     virDomainCapsEnum readonly; /* Info about readonly:virTristateBool */
+@@ -62,14 +56,14 @@ struct _virDomainCapsLoader {
+ typedef struct _virDomainCapsOS virDomainCapsOS;
+ typedef virDomainCapsOS *virDomainCapsOSPtr;
+ struct _virDomainCapsOS {
+-    virDomainCapsDevice device;
++    bool supported;
+     virDomainCapsLoader loader;     /* Info about virDomainLoaderDef */
+ };
+ 
+ typedef struct _virDomainCapsDeviceDisk virDomainCapsDeviceDisk;
+ typedef virDomainCapsDeviceDisk *virDomainCapsDeviceDiskPtr;
+ struct _virDomainCapsDeviceDisk {
+-    virDomainCapsDevice device;
++    bool supported;
+     virDomainCapsEnum diskDevice;   /* Info about virDomainDiskDevice enum values */
+     virDomainCapsEnum bus;          /* Info about virDomainDiskBus enum values */
+     /* add new fields here */
+@@ -78,7 +72,7 @@ struct _virDomainCapsDeviceDisk {
+ typedef struct _virDomainCapsDeviceHostdev virDomainCapsDeviceHostdev;
+ typedef virDomainCapsDeviceHostdev *virDomainCapsDeviceHostdevPtr;
+ struct _virDomainCapsDeviceHostdev {
+-    virDomainCapsDevice device;
++    bool supported;
+     virDomainCapsEnum mode;             /* Info about virDomainHostdevMode */
+     virDomainCapsEnum startupPolicy;    /* Info about virDomainStartupPolicy */
+     virDomainCapsEnum subsysType;       /* Info about virDomainHostdevSubsysType */
+diff --git a/src/qemu/qemu_capabilities.c b/src/qemu/qemu_capabilities.c
+index f46dcad..9ae7b27 100644
+--- a/src/qemu/qemu_capabilities.c
++++ b/src/qemu/qemu_capabilities.c
+@@ -3908,7 +3908,7 @@ virQEMUCapsFillDomainLoaderCaps(virQEMUCapsPtr qemuCaps,
+ {
+     size_t i;
+ 
+-    capsLoader->device.supported = true;
++    capsLoader->supported = true;
+ 
+     if (VIR_ALLOC_N(capsLoader->values.values, nloader) < 0)
+         return -1;
+@@ -3950,7 +3950,7 @@ virQEMUCapsFillDomainOSCaps(virQEMUCapsPtr qemuCaps,
+ {
+     virDomainCapsLoaderPtr capsLoader = &os->loader;
+ 
+-    os->device.supported = true;
++    os->supported = true;
+     if (virQEMUCapsFillDomainLoaderCaps(qemuCaps, capsLoader,
+                                         loader, nloader) < 0)
+         return -1;
+@@ -3963,7 +3963,7 @@ virQEMUCapsFillDomainDeviceDiskCaps(virQEMUCapsPtr qemuCaps,
+                                     const char *machine,
+                                     virDomainCapsDeviceDiskPtr disk)
+ {
+-    disk->device.supported = true;
++    disk->supported = true;
+     /* QEMU supports all of these */
+     VIR_DOMAIN_CAPS_ENUM_SET(disk->diskDevice,
+                              VIR_DOMAIN_DISK_DEVICE_DISK,
+@@ -3999,7 +3999,7 @@ virQEMUCapsFillDomainDeviceHostdevCaps(virQEMUCapsPtr qemuCaps,
+     bool supportsPassthroughKVM = qemuHostdevHostSupportsPassthroughLegacy();
+     bool supportsPassthroughVFIO = qemuHostdevHostSupportsPassthroughVFIO();
+ 
+-    hostdev->device.supported = true;
++    hostdev->supported = true;
+     /* VIR_DOMAIN_HOSTDEV_MODE_CAPABILITIES is for containers only */
+     VIR_DOMAIN_CAPS_ENUM_SET(hostdev->mode,
+                              VIR_DOMAIN_HOSTDEV_MODE_SUBSYS);
+diff --git a/tests/domaincapstest.c b/tests/domaincapstest.c
+index ecefdb9..b6f6ac8 100644
+--- a/tests/domaincapstest.c
++++ b/tests/domaincapstest.c
+@@ -65,9 +65,9 @@ fillAll(virDomainCapsPtr domCaps,
+     virDomainCapsDeviceHostdevPtr hostdev = &domCaps->hostdev;
+     domCaps->maxvcpus = 255;
+ 
+-    os->device.supported = true;
++    os->supported = true;
+ 
+-    loader->device.supported = true;
++    loader->supported = true;
+     SET_ALL_BITS(loader->type);
+     SET_ALL_BITS(loader->readonly);
+     if (fillStringValues(&loader->values,
+@@ -76,11 +76,11 @@ fillAll(virDomainCapsPtr domCaps,
+                          NULL) < 0)
+         return -1;
+ 
+-    disk->device.supported = true;
++    disk->supported = true;
+     SET_ALL_BITS(disk->diskDevice);
+     SET_ALL_BITS(disk->bus);
+ 
+-    hostdev->device.supported = true;
++    hostdev->supported = true;
+     SET_ALL_BITS(hostdev->mode);
+     SET_ALL_BITS(hostdev->startupPolicy);
+     SET_ALL_BITS(hostdev->subsysType);
+-- 
+2.8.1
+

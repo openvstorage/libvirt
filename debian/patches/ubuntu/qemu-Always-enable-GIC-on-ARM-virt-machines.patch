@@ -1,0 +1,74 @@
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 3 Feb 2016 19:49:27 +0100
+Subject: [PATCH 5/7] qemu: Always enable GIC on ARM virt machines
+
+GIC is always available to ARM virt machines, and the domain XML should
+reflect this fact.
+
+[dannf: backported test changes to 1.3.1]
+
+Origin: https://libvirt.org/git/?p=libvirt.git;a=commit;h=bd2369505516547a3dc4baeaa461de472be63f8e
+Bug-Ubuntu: http://bugs.launchpad.net/bugs/1566564
+Last-Updated: 2016-05-19
+
+Index: libvirt-1.3.1/src/qemu/qemu_domain.c
+===================================================================
+--- libvirt-1.3.1.orig/src/qemu/qemu_domain.c
++++ libvirt-1.3.1/src/qemu/qemu_domain.c
+@@ -1226,6 +1226,20 @@ qemuDomainDefAddDefaultDevices(virDomain
+ static void
+ qemuDomainDefEnableDefaultFeatures(virDomainDefPtr def)
+ {
++    switch (def->os.arch) {
++    case VIR_ARCH_ARMV7L:
++    case VIR_ARCH_AARCH64:
++        if (STREQ(def->os.machine, "virt") ||
++            STRPREFIX(def->os.machine, "virt-")) {
++            /* GIC is always available to ARM virt machines */
++            def->features[VIR_DOMAIN_FEATURE_GIC] = VIR_TRISTATE_SWITCH_ON;
++        }
++        break;
++
++    default:
++        break;
++    }
++
+     /* Default to GIC v2 if no version was specified */
+     if (def->features[VIR_DOMAIN_FEATURE_GIC] == VIR_TRISTATE_SWITCH_ON &&
+         def->gic_version == VIR_GIC_VERSION_NONE)
+Index: libvirt-1.3.1/tests/qemuxml2argvdata/qemuxml2argv-aarch64-aavmf-virtio-mmio.xml
+===================================================================
+--- libvirt-1.3.1.orig/tests/qemuxml2argvdata/qemuxml2argv-aarch64-aavmf-virtio-mmio.xml
++++ libvirt-1.3.1/tests/qemuxml2argvdata/qemuxml2argv-aarch64-aavmf-virtio-mmio.xml
+@@ -16,6 +16,7 @@
+     <acpi/>
+     <apic/>
+     <pae/>
++    <gic version='2'/>
+   </features>
+   <cpu mode='custom' match='exact'>
+     <model fallback='allow'>cortex-a53</model>
+Index: libvirt-1.3.1/tests/qemuxml2argvdata/qemuxml2argv-aarch64-virt-virtio.xml
+===================================================================
+--- libvirt-1.3.1.orig/tests/qemuxml2argvdata/qemuxml2argv-aarch64-virt-virtio.xml
++++ libvirt-1.3.1/tests/qemuxml2argvdata/qemuxml2argv-aarch64-virt-virtio.xml
+@@ -15,6 +15,7 @@
+     <acpi/>
+     <apic/>
+     <pae/>
++    <gic version='2'/>
+   </features>
+   <cpu match='exact'>
+     <model>cortex-a53</model>
+Index: libvirt-1.3.1/tests/qemuxml2argvdata/qemuxml2argv-aarch64-virtio-pci.xml
+===================================================================
+--- libvirt-1.3.1.orig/tests/qemuxml2argvdata/qemuxml2argv-aarch64-virtio-pci.xml
++++ libvirt-1.3.1/tests/qemuxml2argvdata/qemuxml2argv-aarch64-virtio-pci.xml
+@@ -16,6 +16,7 @@
+     <acpi/>
+     <apic/>
+     <pae/>
++    <gic version='2'/>
+   </features>
+   <cpu mode='custom' match='exact'>
+     <model fallback='allow'>cortex-a53</model>

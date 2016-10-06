@@ -1,0 +1,29 @@
+commit 4e87164306f4bead094429ab9e520dfd1b58199f
+Author: John Ferlan <jferlan@redhat.com>
+Date:   Fri Feb 19 13:54:45 2016 -0500
+
+    zfs: Resolve RESOURCE_LEAK
+    
+    Found by my Coverity checker - virCheckFlags call could return -1, but
+    not virCommandFree(destroy_cmd).
+    
+    Signed-off-by: John Ferlan <jferlan@redhat.com>
+
+diff --git a/src/storage/storage_backend_zfs.c b/src/storage/storage_backend_zfs.c
+index 6bf7963..4d04c70 100644
+--- a/src/storage/storage_backend_zfs.c
++++ b/src/storage/storage_backend_zfs.c
+@@ -355,10 +355,12 @@ virStorageBackendZFSDeleteVol(virConnectPtr conn ATTRIBUTE_UNUSED,
+                               unsigned int flags)
+ {
+     int ret = -1;
+-    virCommandPtr destroy_cmd = virCommandNewArgList(ZFS, "destroy", NULL);
++    virCommandPtr destroy_cmd = NULL;
+ 
+     virCheckFlags(0, -1);
+ 
++    destroy_cmd = virCommandNewArgList(ZFS, "destroy", NULL);
++
+     virCommandAddArgFormat(destroy_cmd, "%s/%s",
+                            pool->def->source.name, vol->name);
+ 

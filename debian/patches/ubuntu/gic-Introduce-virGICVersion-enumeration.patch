@@ -1,0 +1,112 @@
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 3 Feb 2016 12:49:51 +0100
+Subject: [PATCH 1/7] gic: Introduce virGICVersion enumeration
+
+We currently blindly accept any numeric value as a GIC version, even
+though only GIC v2 and GIC v3 actually exist; on the other hand, we
+reject "host", which is a perfectly legitimate value for QEMU guests.
+
+This new enumeration contains all GIC versions libvirt is aware of.
+
+Origin: https://libvirt.org/git/?p=libvirt.git;a=commit;h=e76bef7f7ba3abe5c3e075c7ec5cec127c5ff4e5
+Bug-Ubuntu: http://bugs.launchpad.net/bugs/1566564
+Last-Updated: 2016-05-19
+
+diff --git a/src/Makefile.am b/src/Makefile.am
+index f857e59..1a2ed76 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -113,6 +113,7 @@ UTIL_SOURCES =							\
+ 		util/virfile.c util/virfile.h			\
+ 		util/virfirewall.c util/virfirewall.h		\
+ 		util/virfirewallpriv.h				\
++		util/virgic.c util/virgic.h			\
+ 		util/virhash.c util/virhash.h			\
+ 		util/virhashcode.c util/virhashcode.h		\
+ 		util/virhook.c util/virhook.h			\
+diff --git a/src/util/virgic.c b/src/util/virgic.c
+new file mode 100644
+index 0000000..e7326d6
+--- /dev/null
++++ b/src/util/virgic.c
+@@ -0,0 +1,33 @@
++/*
++ * virgic.c: ARM Generic Interrupt Controller support
++ *
++ * Copyright (C) 2016 Red Hat, Inc.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library.  If not, see
++ * <http://www.gnu.org/licenses/>.
++ *
++ * Author: Andrea Bolognani <abologna@redhat.com>
++ */
++
++#include <config.h>
++#include "internal.h"
++#include "virgic.h"
++#include "virutil.h"
++
++VIR_ENUM_IMPL(virGICVersion, VIR_GIC_VERSION_LAST,
++              "none",
++              "host",
++              "2",
++              "3",
++);
+diff --git a/src/util/virgic.h b/src/util/virgic.h
+new file mode 100644
+index 0000000..a2ba300
+--- /dev/null
++++ b/src/util/virgic.h
+@@ -0,0 +1,38 @@
++/*
++ * virgic.h: ARM Generic Interrupt Controller support
++ *
++ * Copyright (C) 2016 Red Hat, Inc.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library.  If not, see
++ * <http://www.gnu.org/licenses/>.
++ *
++ * Author: Andrea Bolognani <abologna@redhat.com>
++ */
++
++#ifndef __VIR_GIC_H__
++# define __VIR_GIC_H__
++
++# include "virutil.h"
++
++typedef enum {
++    VIR_GIC_VERSION_NONE = 0,
++    VIR_GIC_VERSION_HOST,
++    VIR_GIC_VERSION_2,
++    VIR_GIC_VERSION_3,
++    VIR_GIC_VERSION_LAST
++} virGICVersion;
++
++VIR_ENUM_DECL(virGICVersion);
++
++#endif /* __VIR_GIC_H__ */
+-- 
+2.8.1
+

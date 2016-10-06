@@ -1,0 +1,59 @@
+description "libvirt daemon"
+author "Dustin Kirkland <kirkland@canonical.com>"
+
+start on stopped rc RUNLEVEL=[2345]
+stop on starting rc RUNLEVEL=[016]
+
+expect daemon
+respawn
+
+# daemonize
+env libvirtd_opts="-d"
+# whether libvirtd should run at boot/shutdown
+env start_libvirtd="yes"
+# by default wait 30 seconds for vms to shut down
+env libvirtd_shutdown_timeout=30
+# uris for which to shut down vms
+env libvirt_uris='qemu:///system lxc:/// xen:///'
+
+pre-start script
+	[ -r /etc/default/libvirt-bin ] && . /etc/default/libvirt-bin
+	[ ! "x$start_libvirtd" = "xyes" ] && { stop; exit 0; }
+	mkdir -p /var/run/libvirt
+	# Clean up a pidfile that might be left around
+	rm -f /var/run/libvirtd.pid
+end script
+
+post-start script
+	sockfile=/var/run/libvirt/libvirt-sock
+	sockfile_check_retries=5
+	while [ ! -S $sockfile ] ; do
+			echo "Waiting for $sockfile - recheck in 2 sec"
+			sleep 2;
+			if ! sockfile_check_retries=`expr $sockfile_check_retries - 1`; then
+					echo "Giving up waiting for $sockfile."
+					stop; exit 0
+			fi
+	done
+	echo "$sockfile ready."
+end script
+
+pre-stop script
+	if [ -z "$RUNLEVEL" ]; then
+		exit 0
+	fi
+
+	if [ "$RUNLEVEL" -ne 0 ] && [ "$RUNLEVEL" -ne 1 ] && [ "$RUNLEVEL" -ne 6 ]; then
+		exit 0
+	fi
+
+        /usr/lib/libvirt/libvirt-stop-guests
+end script
+
+# /etc/default/libvirt-bin will be deprecated soon.
+# If you used to set $libvirtd_opts in /etc/default/libvirt-bin,
+# change the 'exec' line here instead.
+script
+	[ -r /etc/default/libvirt-bin ] && . /etc/default/libvirt-bin
+	exec /usr/sbin/libvirtd $libvirtd_opts
+end script

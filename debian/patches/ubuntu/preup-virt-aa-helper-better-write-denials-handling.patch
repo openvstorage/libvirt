@@ -1,0 +1,69 @@
+Description: Introduce readonly without explicit deny-write
+ Upstream changed get_files to unconditionally be "rw" to allow audit
+ files to be written. Still under discussion but the proposed approach
+ is to have a way of saying readonly but do not implicitely create a
+ write deny rule.
+Forwarded: yes
+Author: Cèdric Bosdonnat <cbosdonnat@suse.com>
+
+Index: libvirt/src/security/virt-aa-helper.c
+===================================================================
+--- libvirt.orig/src/security/virt-aa-helper.c
++++ libvirt/src/security/virt-aa-helper.c
+@@ -786,12 +786,19 @@ get_definition(vahControl * ctl, const c
+     return rc;
+ }
+ 
++/*
++ * The permissions allowed are apparmor valid permissions and 'R'. 'R' stands
++ * for read with no explicit deny rule.
++ */
+ static int
+-vah_add_path(virBufferPtr buf, const char *path, const char *perms, bool recursive)
++vah_add_path(virBufferPtr buf, const char *path, const char *inperms, bool recursive)
+ {
+     char *tmp = NULL;
+     int rc = -1;
+     bool readonly = true;
++    bool explicit_deny_rule = true;
++    char *perms = strdupa(inperms);
++    char *sub = NULL;
+ 
+     if (path == NULL)
+         return rc;
+@@ -816,8 +823,16 @@ vah_add_path(virBufferPtr buf, const cha
+         return rc;
+     }
+ 
+-    if (strchr(perms, 'w') != NULL)
++    if (strchr(perms, 'w') != NULL) {
+         readonly = false;
++        explicit_deny_rule = false;
++    }
++
++    if ((sub = strchr(perms, 'R')) != NULL) {
++        /* Don't write the invalid 'R' permission, replace with 'r' */
++        sub[0] = 'r';
++        explicit_deny_rule = false;
++    }
+ 
+     rc = valid_path(tmp, readonly);
+     if (rc != 0) {
+@@ -832,7 +847,7 @@ vah_add_path(virBufferPtr buf, const cha
+         tmp[strlen(tmp) - 1] = '\0';
+ 
+     virBufferAsprintf(buf, "  \"%s%s\" %s,\n", tmp, recursive ? "/**" : "", perms);
+-    if (readonly) {
++    if (explicit_deny_rule) {
+         virBufferAddLit(buf, "  # don't audit writes to readonly files\n");
+         virBufferAsprintf(buf, "  deny \"%s%s\" w,\n", tmp, recursive ? "/**" : "");
+     }
+@@ -1131,7 +1146,7 @@ get_files(vahControl * ctl)
+             /* We don't need to add deny rw rules for readonly mounts,
+              * this can only lead to troubles when mounting / readonly.
+              */
+-            if (vah_add_path(&buf, fs->src, "rw", true) != 0)
++            if (vah_add_path(&buf, fs->src, fs->readonly ? "R" : "rw", true) != 0)
+                 goto cleanup;
+         }
+     }

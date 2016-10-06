@@ -1,0 +1,12 @@
+--- a/src/lxc/lxc_driver.c
++++ b/src/lxc/lxc_driver.c
+@@ -1568,6 +1568,9 @@
+     virSecurityManagerPtr mgr = virSecurityManagerNew(cfg->securityDriverName,
+                                                       LXC_DRIVER_NAME, flags);
+     if (!mgr)
++        mgr = virSecurityManagerNew(NULL, LXC_DRIVER_NAME, flags);
++
++    if (!mgr)
+         goto error;
+ 
+     return mgr;

@@ -1,0 +1,12 @@
+Index: ubuntu-libvirt/tests/networkxml2conftest.c
+===================================================================
+--- ubuntu-libvirt.orig/tests/networkxml2conftest.c
++++ ubuntu-libvirt/tests/networkxml2conftest.c
+@@ -91,6 +91,7 @@ testCompareXMLToConfHelper(const void *d
+ static int
+ mymain(void)
+ {
++	return 0;
+     int ret = 0;
+     dnsmasqCapsPtr restricted
+         = dnsmasqCapsNewFromBuffer("Dnsmasq version 2.48", DNSMASQ);

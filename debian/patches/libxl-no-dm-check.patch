@@ -1,0 +1,35 @@
+Description: libxl: Stop calling emulator to identify device-model
+ In order to decide whether the provided qemu is a upstream version or
+ the one that Xen was providing in the past the libxl driver tries to 
+ call it with "-help" and checks the result for some keywords.
+ Given we no longer ship the old qemu-dm and because it causes the
+ auto-tests to fail, we just always pretend its the upstream qemu.
+Forwarded: no
+Author: Stefan Bader <stefan.bader@canonical.com>
+
+Index: libvirt-1.3.1/src/libxl/libxl_conf.c
+===================================================================
+--- libvirt-1.3.1.orig/src/libxl/libxl_conf.c	2016-01-29 17:06:15.896848191 +0100
++++ libvirt-1.3.1/src/libxl/libxl_conf.c	2016-01-29 17:06:15.892848191 +0100
+@@ -892,6 +892,13 @@ libxlDiskSetDiscard(libxl_device_disk *x
+ int
+ libxlDomainGetEmulatorType(const virDomainDef *def)
+ {
++	/*
++	 * We do not ship any qemu-dm anymore, so there is no use in the
++	 * callout and it also breaks the test (at least since 1.3.1).
++	 * So just return with the new device-model.
++	 */
++	return LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN;
++#if 0
+     int ret = LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN;
+     virCommandPtr cmd = NULL;
+     char *output = NULL;
+@@ -915,6 +922,7 @@ libxlDomainGetEmulatorType(const virDoma
+     VIR_FREE(output);
+     virCommandFree(cmd);
+     return ret;
++#endif
+ }
+ 
+ 

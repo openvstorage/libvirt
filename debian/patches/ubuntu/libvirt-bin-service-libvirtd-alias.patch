@@ -1,0 +1,20 @@
+Description: Add libvirtd.service alias to libvirt-bin.service
+ This will allow systemd services which were not modified when merging
+ from Debian to correctly depend on libvirtd. Also will simplify things
+ when we finally get rid of the special naming.
+Forwarded: no
+Author: Stefan Bader <stefan.bader@canonical.com>
+Bug-Ubuntu: https://bugs.ubuntu.com/bugs/1567811
+
+Index: libvirt-1.3.1/daemon/libvirtd.service.in
+===================================================================
+--- libvirt-1.3.1.orig/daemon/libvirtd.service.in	2016-04-08 10:51:33.000000000 +0200
++++ libvirt-1.3.1/daemon/libvirtd.service.in	2016-04-08 11:00:18.804858018 +0200
+@@ -22,6 +22,7 @@ LimitNPROC=infinity
+ TasksMax=infinity
+ 
+ [Install]
++Alias=libvirtd.service
+ WantedBy=multi-user.target
+ Also=virtlockd.socket
+ Also=virtlogd.socket

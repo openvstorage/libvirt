@@ -1,0 +1,63 @@
+From: Cole Robinson <crobinso@redhat.com>
+Date: Wed, 9 Mar 2016 15:53:54 +0000 (-0500)
+Subject: util: virfile: Clarify setuid usage for virFileRemove
+X-Git-Tag: v1.3.3-rc1~249
+X-Git-Url: https://libvirt.org/git/?p=libvirt.git;a=commitdiff_plain;h=7cf5343709935694b76af7b134447a2c555400b6
+
+util: virfile: Clarify setuid usage for virFileRemove
+
+Break these checks out into their own function, and clearly document
+each one. This shouldn't change behavior
+---
+
+diff --git a/src/util/virfile.c b/src/util/virfile.c
+index f45e18f..a913903 100644
+--- a/src/util/virfile.c
++++ b/src/util/virfile.c
+@@ -2314,6 +2314,32 @@ virFileOpenAs(const char *path, int openflags, mode_t mode,
+ }
+ 
+ 
++/* virFileRemoveNeedsSetuid:
++ * @uid: file uid to check
++ * @gid: file gid to check
++ *
++ * Return true if we should use setuid/setgid before deleting a file
++ * owned by the passed uid/gid pair. Needed for NFS with root-squash
++ */
++static bool
++virFileRemoveNeedsSetuid(uid_t uid, gid_t gid)
++{
++    /* If running unprivileged, setuid isn't going to work */
++    if (geteuid() != 0)
++        return false;
++
++    /* uid/gid weren't specified */
++    if ((uid == (uid_t) -1) && (gid == (gid_t) -1))
++        return false;
++
++    /* already running as proper uid/gid */
++    if (uid == geteuid() && gid == getegid())
++        return false;
++
++    return true;
++}
++
++
+ /* virFileRemove:
+  * @path: file to unlink or directory to remove
+  * @uid: uid that was used to create the file (not required)
+@@ -2335,12 +2361,7 @@ virFileRemove(const char *path,
+     gid_t *groups;
+     int ngroups;
+ 
+-    /* If not running as root or if a non explicit uid/gid was being used for
+-     * the file/volume or the explicit uid/gid matches, then use unlink directly
+-     */
+-    if ((geteuid() != 0) ||
+-        ((uid == (uid_t) -1) && (gid == (gid_t) -1)) ||
+-        (uid == geteuid() && gid == getegid())) {
++    if (!virFileRemoveNeedsSetuid(uid, gid)) {
+         if (virFileIsDir(path))
+             return rmdir(path);
+         else

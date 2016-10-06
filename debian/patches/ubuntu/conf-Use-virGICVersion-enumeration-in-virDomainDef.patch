@@ -1,0 +1,131 @@
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 3 Feb 2016 14:33:28 +0100
+Subject: [PATCH] conf: Use virGICVersion enumeration in virDomainDef
+
+Instead of allowing any random positive number, restrict the possible
+values to the ones that are part of the virGICVersion enumeration.
+
+Origin: https://libvirt.org/git/?p=libvirt.git;a=commit;h=768b7ed2c8760cc6588c42baaa47b82522c7ffb7
+Bug-Ubuntu: http://bugs.launchpad.net/bugs/1566564
+Last-Updated: 2016-05-19
+
+diff --git a/src/conf/domain_conf.c b/src/conf/domain_conf.c
+index 67415fa..295bc1b 100644
+--- a/src/conf/domain_conf.c
++++ b/src/conf/domain_conf.c
+@@ -15334,8 +15334,8 @@ virDomainDefParseXML(xmlDocPtr xml,
+             node = ctxt->node;
+             ctxt->node = nodes[i];
+             if ((tmp = virXPathString("string(./@version)", ctxt))) {
+-                if (virStrToLong_uip(tmp, NULL, 10, &def->gic_version) < 0 ||
+-                    def->gic_version == 0) {
++                if ((def->gic_version = virGICVersionTypeFromString(tmp)) < 0 ||
++                    def->gic_version == VIR_GIC_VERSION_NONE) {
+                     virReportError(VIR_ERR_XML_ERROR,
+                                    _("malformed gic version: %s"), tmp);
+                     goto error;
+@@ -17413,8 +17413,9 @@ virDomainDefFeaturesCheckABIStability(virDomainDefPtr src,
+     /* GIC version */
+     if (src->gic_version != dst->gic_version) {
+         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
+-                       _("Source GIC version '%u' does not match destination '%u'"),
+-                       src->gic_version, dst->gic_version);
++                       _("Source GIC version '%s' does not match destination '%s'"),
++                       virGICVersionTypeToString(src->gic_version),
++                       virGICVersionTypeToString(dst->gic_version));
+         return false;
+     }
+ 
+@@ -22173,9 +22174,9 @@ virDomainDefFormatInternal(virDomainDefPtr def,
+             case VIR_DOMAIN_FEATURE_GIC:
+                 if (def->features[i] == VIR_TRISTATE_SWITCH_ON) {
+                     virBufferAddLit(buf, "<gic");
+-                    if (def->gic_version)
+-                        virBufferAsprintf(buf, " version='%u'",
+-                                          def->gic_version);
++                    if (def->gic_version != VIR_GIC_VERSION_NONE)
++                        virBufferAsprintf(buf, " version='%s'",
++                                          virGICVersionTypeToString(def->gic_version));
+                     virBufferAddLit(buf, "/>\n");
+                 }
+                 break;
+diff --git a/src/conf/domain_conf.h b/src/conf/domain_conf.h
+index 230b23d..1de3be3 100644
+--- a/src/conf/domain_conf.h
++++ b/src/conf/domain_conf.h
+@@ -50,6 +50,7 @@
+ # include "virstoragefile.h"
+ # include "virseclabel.h"
+ # include "virprocess.h"
++# include "virgic.h"
+ 
+ /* forward declarations of all device types, required by
+  * virDomainDeviceDef
+@@ -2232,7 +2233,7 @@ struct _virDomainDef {
+     int hyperv_features[VIR_DOMAIN_HYPERV_LAST];
+     int kvm_features[VIR_DOMAIN_KVM_LAST];
+     unsigned int hyperv_spinlocks;
+-    unsigned int gic_version;
++    virGICVersion gic_version;
+ 
+     /* These options are of type virTristateSwitch: ON = keep, OFF = drop */
+     int caps_features[VIR_DOMAIN_CAPS_FEATURE_LAST];
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 4cfaed5..cb1566d 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -1512,6 +1512,11 @@ virFirewallStartRollback;
+ virFirewallStartTransaction;
+ 
+ 
++# util/virgic.h
++virGICVersionTypeFromString;
++virGICVersionTypeToString;
++
++
+ # util/virhash.h
+ virHashAddEntry;
+ virHashAtomicNew;
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 7a8ae73..3331f70 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -55,6 +55,7 @@
+ #include "virtpm.h"
+ #include "virscsi.h"
+ #include "virnuma.h"
++#include "virgic.h"
+ #if defined(__linux__)
+ # include <linux/capability.h>
+ #endif
+@@ -7774,7 +7775,7 @@ qemuBuildMachineArgStr(virCommandPtr cmd,
+         }
+ 
+         if (def->features[VIR_DOMAIN_FEATURE_GIC] == VIR_TRISTATE_SWITCH_ON) {
+-            if (def->gic_version) {
++            if (def->gic_version != VIR_GIC_VERSION_NONE) {
+                 if ((def->os.arch != VIR_ARCH_ARMV7L &&
+                      def->os.arch != VIR_ARCH_AARCH64) ||
+                     (STRNEQ(def->os.machine, "virt") &&
+@@ -7789,7 +7790,7 @@ qemuBuildMachineArgStr(virCommandPtr cmd,
+                 /* 2 is the default, so we don't put it as option for
+                  * backwards compatibility
+                  */
+-                if (def->gic_version != 2) {
++                if (def->gic_version != VIR_GIC_VERSION_2) {
+                     if (!virQEMUCapsGet(qemuCaps,
+                                         QEMU_CAPS_MACH_VIRT_GIC_VERSION)) {
+                         virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+@@ -7799,7 +7800,8 @@ qemuBuildMachineArgStr(virCommandPtr cmd,
+                         return -1;
+                     }
+ 
+-                    virBufferAsprintf(&buf, ",gic-version=%d", def->gic_version);
++                    virBufferAsprintf(&buf, ",gic-version=%s",
++                                      virGICVersionTypeToString(def->gic_version));
+                 }
+             }
+         }
+-- 
+2.8.1
+

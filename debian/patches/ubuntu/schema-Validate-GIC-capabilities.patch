@@ -1,0 +1,51 @@
+From: Andrea Bolognani <abologna@redhat.com>
+Date: Wed, 9 Mar 2016 18:42:14 +0100
+Subject: [PATCH 2/5] schema: Validate GIC capabilities
+
+We need to expose GIC capabilities in the domain capabilities
+XML: update the schema to validate documents that contain the
+new information.
+
+Origin: https://libvirt.org/git/?p=libvirt.git;a=commit;h=24f17f557abf044b1796bfa8116eff1b4dc50ea0
+Bug-Ubuntu: http://bugs.launchpad.net/bugs/1566564
+Last-Updated: 2016-05-19
+
+diff --git a/docs/schemas/domaincaps.rng b/docs/schemas/domaincaps.rng
+index 35d3745..0d2777b 100644
+--- a/docs/schemas/domaincaps.rng
++++ b/docs/schemas/domaincaps.rng
+@@ -31,6 +31,9 @@
+         <optional>
+           <ref name='devices'/>
+         </optional>
++        <optional>
++          <ref name='features'/>
++        </optional>
+       </interleave>
+     </element>
+   </define>
+@@ -88,6 +91,21 @@
+     </element>
+   </define>
+ 
++  <define name='features'>
++    <element name='features'>
++      <interleave>
++        <ref name='gic'/>
++      </interleave>
++    </element>
++  </define>
++
++  <define name='gic'>
++    <element name='gic'>
++      <ref name='supported'/>
++      <ref name='enum'/>
++    </element>
++  </define>
++
+   <define name='value'>
+     <zeroOrMore>
+       <element name='value'>
+-- 
+2.8.1
+

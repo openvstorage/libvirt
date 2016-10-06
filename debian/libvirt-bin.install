@@ -1,0 +1,17 @@
+usr/bin/*
+usr/sbin/*
+etc/apparmor.d/abstractions/*
+etc/apparmor.d/libvirt/TEMPLATE*
+etc/apparmor.d/usr.*
+etc/apparmor.d/local/*
+etc/libvirt/*
+etc/sasl2/*
+usr/share/polkit-1
+usr/lib/libvirt/*
+usr/share/augeas/*
+usr/share/libvirt/*
+usr/share/man/man8/*
+usr/share/apport/package-hooks/source_libvirt.py
+etc/dnsmasq.d-available/libvirt-bin
+etc/profile.d/libvirt-uri.sh
+usr/lib/libvirt

@@ -1,0 +1,31 @@
+Description: virt-aa-helper: Allow access to aarch64 UEFI images.
+Author: William Grant <wgrant@ubuntu.com>
+
+Index: libvirt-1.3.1/examples/apparmor/libvirt-qemu
+===================================================================
+--- libvirt-1.3.1.orig/examples/apparmor/libvirt-qemu
++++ libvirt-1.3.1/examples/apparmor/libvirt-qemu
+@@ -68,6 +68,8 @@
+   /usr/share/seabios/** r,
+   /usr/share/ovmf/** r,
+   /usr/share/OVMF/** r,
++  /usr/share/AAVMF/** r,
++  /usr/share/qemu-efi/** r,
+ 
+   # access PKI infrastructure
+   /etc/pki/libvirt-vnc/** r,
+Index: libvirt-1.3.1/src/security/virt-aa-helper.c
+===================================================================
+--- libvirt-1.3.1.orig/src/security/virt-aa-helper.c
++++ libvirt-1.3.1/src/security/virt-aa-helper.c
+@@ -571,7 +571,9 @@ valid_path(const char *path, const bool
+         "/initrd",
+         "/initrd.img",
+         "/usr/share/OVMF/",              /* for OVMF images */
+-        "/usr/share/ovmf/"               /* for OVMF images */
++        "/usr/share/ovmf/",              /* for OVMF images */
++        "/usr/share/AAVMF/",             /* for AAVMF images */
++        "/usr/share/qemu-efi/"           /* for AAVMF images */
+     };
+     /* override the above with these */
+     const char * const override[] = {
