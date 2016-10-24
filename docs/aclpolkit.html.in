@@ -121,7 +121,7 @@
           <td>Name of the network interface, unique to the local host</td>
         </tr>
         <tr>
-          <td>interface_mac</td>
+          <td>interface_macaddr</td>
           <td>MAC address of the network interface, not unique</td>
         </tr>
       </tbody>
@@ -346,6 +346,12 @@
       accessible via the <code>id</code> attribute, while the
       object identifying attributes are exposed via the
       <code>lookup</code> method.
+    </p>
+
+    <p>
+    See
+    <a href="http://libvirt.org/git/?p=libvirt.git;a=tree;f=examples/polkit;hb=HEAD">source code</a>
+    for a more complex example.
     </p>
 
     <h3><a name="exconnect">Example: restricting ability to connect to drivers</a></h3>

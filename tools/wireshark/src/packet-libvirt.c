@@ -34,6 +34,13 @@
 #endif
 #include <rpc/xdr.h>
 #include "packet-libvirt.h"
+#include "internal.h"
+
+/* Wireshark 1.12 brings API change */
+#define WIRESHARK_VERSION               \
+    ((VERSION_MAJOR * 1000 * 1000) +    \
+     (VERSION_MINOR * 1000) +           \
+     (VERSION_MICRO))
 
 static int proto_libvirt = -1;
 static int hf_libvirt_length = -1;
@@ -45,7 +52,7 @@ static int hf_libvirt_serial = -1;
 static int hf_libvirt_status = -1;
 static int hf_libvirt_stream = -1;
 static int hf_libvirt_num_of_fds = -1;
-static int hf_libvirt_unknown = -1;
+int hf_libvirt_unknown = -1;
 static gint ett_libvirt = -1;
 
 #define XDR_PRIMITIVE_DISSECTOR(xtype, ctype, ftype)                    \
@@ -94,7 +101,7 @@ dissect_xdr_string(tvbuff_t *tvb, proto_tree *tree, XDR *xdrs, int hf,
     }
 }
 
-static gchar *
+static const gchar *
 format_xdr_bytes(guint8 *bytes, guint32 length)
 {
     gchar *buf;
@@ -102,7 +109,7 @@ format_xdr_bytes(guint8 *bytes, guint32 length)
 
     if (length == 0)
         return "";
-    buf = ep_alloc(length*2 + 1);
+    buf = wmem_alloc(wmem_packet_scope(), length*2 + 1);
     for (i = 0; i < length; i++) {
         /* We know that buf has enough size to contain
            2 * length + '\0' characters. */
@@ -195,7 +202,7 @@ dissect_xdr_iterable(tvbuff_t *tvb, proto_item *ti, XDR *xdrs, gint ett, int rhf
 
 static gboolean
 dissect_xdr_vector(tvbuff_t *tvb, proto_tree *tree, XDR *xdrs, int hf, gint ett,
-                   int rhf, gchar *rtype, guint32 size, vir_xdr_dissector_t dissect)
+                   int rhf, const gchar *rtype, guint32 size, vir_xdr_dissector_t dissect)
 {
     goffset start;
     proto_item *ti;
@@ -208,7 +215,7 @@ dissect_xdr_vector(tvbuff_t *tvb, proto_tree *tree, XDR *xdrs, int hf, gint ett,
 
 static gboolean
 dissect_xdr_array(tvbuff_t *tvb, proto_tree *tree, XDR *xdrs, int hf, gint ett,
-                  int rhf, gchar *rtype, guint32 maxlen, vir_xdr_dissector_t dissect)
+                  int rhf, const gchar *rtype, guint32 maxlen, vir_xdr_dissector_t dissect)
 {
     goffset start;
     proto_item *ti;
@@ -238,9 +245,8 @@ find_payload_dissector(guint32 proc, guint32 type,
 
     first = pds[0].proc;
     last = pds[length-1].proc;
-    if (proc < first || proc > last) {
+    if (proc < first || proc > last)
         return NULL;
-    }
 
     pd = &pds[proc-first];
     /* There is no guarantee to proc numbers has no gap */
@@ -306,7 +312,11 @@ dissect_libvirt_payload_xdr_data(tvbuff_t *tvb, proto_tree *tree, gint payload_l
     }
 
     payload_tvb = tvb_new_subset(tvb, start, -1, payload_length);
+#if WIRESHARK_VERSION < 1012000
     payload_data = (caddr_t)tvb_memdup(payload_tvb, 0, payload_length);
+#else
+    payload_data = (caddr_t)tvb_memdup(NULL, payload_tvb, 0, payload_length);
+#endif
     xdrmem_create(&xdrs, payload_data, payload_length, XDR_DECODE);
 
     dissect(payload_tvb, tree, &xdrs, -1);
@@ -314,9 +324,8 @@ dissect_libvirt_payload_xdr_data(tvbuff_t *tvb, proto_tree *tree, gint payload_l
     xdr_destroy(&xdrs);
     g_free(payload_data);
 
-    if (nfds != 0) {
+    if (nfds != 0)
         dissect_libvirt_fds(tvb, start + payload_length, nfds);
-    }
 }
 
 static void
@@ -325,7 +334,7 @@ dissect_libvirt_payload(tvbuff_t *tvb, proto_tree *tree,
 {
     gssize payload_length;
 
-    payload_length = tvb_length(tvb) - VIR_HEADER_LEN;
+    payload_length = tvb_captured_length(tvb) - VIR_HEADER_LEN;
     if (payload_length <= 0)
         return; /* No payload */
 
@@ -344,13 +353,19 @@ dissect_libvirt_payload(tvbuff_t *tvb, proto_tree *tree,
     }
     return;
 
-unknown:
+ unknown:
     dbg("Cannot determine payload: Prog=%u, Proc=%u, Type=%u, Status=%u", prog, proc, type, status);
     proto_tree_add_item(tree, hf_libvirt_unknown, tvb, VIR_HEADER_LEN, -1, ENC_NA);
 }
 
+#if WIRESHARK_VERSION < 1012000
 static void
 dissect_libvirt_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
+#else
+static int
+dissect_libvirt_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
+                        void *opaque ATTRIBUTE_UNUSED)
+#endif
 {
     goffset offset;
     guint32 prog, proc, type, serial, status;
@@ -386,7 +401,7 @@ dissect_libvirt_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         proto_item *ti;
         proto_tree *libvirt_tree;
 
-        ti = proto_tree_add_item(tree, proto_libvirt, tvb, 0, tvb_length(tvb), ENC_NA);
+        ti = proto_tree_add_item(tree, proto_libvirt, tvb, 0, tvb_captured_length(tvb), ENC_NA);
         libvirt_tree = proto_item_add_subtree(ti, ett_libvirt);
 
         offset = 0;
@@ -410,10 +425,19 @@ dissect_libvirt_message(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
         /* Dissect payload remaining */
         dissect_libvirt_payload(tvb, libvirt_tree, prog, proc, type, status);
     }
+
+#if WIRESHARK_VERSION >= 1012000
+    return 0;
+#endif
 }
 
+#if WIRESHARK_VERSION >= 1099002
+static guint
+get_message_len(packet_info *pinfo ATTRIBUTE_UNUSED, tvbuff_t *tvb, int offset, void *data ATTRIBUTE_UNUSED)
+#else
 static guint32
-get_message_len(packet_info *pinfo __attribute__((unused)), tvbuff_t *tvb, int offset)
+get_message_len(packet_info *pinfo ATTRIBUTE_UNUSED, tvbuff_t *tvb, int offset)
+#endif
 {
     return tvb_get_ntohl(tvb, offset);
 }
@@ -423,7 +447,13 @@ dissect_libvirt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
     /* Another magic const - 4; simply, how much bytes
      * is needed to tell the length of libvirt packet. */
-    tcp_dissect_pdus(tvb, pinfo, tree, TRUE, 4, get_message_len, dissect_libvirt_message);
+#if WIRESHARK_VERSION < 1012000
+    tcp_dissect_pdus(tvb, pinfo, tree, TRUE, 4,
+                     get_message_len, dissect_libvirt_message);
+#else
+    tcp_dissect_pdus(tvb, pinfo, tree, TRUE, 4,
+                     get_message_len, dissect_libvirt_message, NULL);
+#endif
 }
 
 void

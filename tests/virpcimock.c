@@ -49,9 +49,10 @@ static DIR * (*realopendir)(const char *name);
  * when passed as an arg to virAsprintf()
  * vircgroupmock.c:462:22: error: static variable 'fakesysfsdir' is used in an inline function with external linkage [-Werror,-Wstatic-in-inline]
  */
-char *fakesysfsdir;
+char *fakerootdir;
+char *fakesysfspcidir;
 
-# define PCI_SYSFS_PREFIX "/sys/bus/pci/"
+# define SYSFS_PCI_PREFIX "/sys/bus/pci/"
 
 # define STDERR(...)                                                    \
     fprintf(stderr, "%s %zu: ", __FUNCTION__, (size_t) __LINE__);       \
@@ -70,7 +71,7 @@ char *fakesysfsdir;
  * The plan:
  *
  * Mock some file handling functions. Redirect them into a stub tree passed via
- * LIBVIRT_FAKE_SYSFS_DIR env variable. All files and links within stub tree is
+ * LIBVIRT_FAKE_ROOT_DIR env variable. All files and links within stub tree is
  * created by us. There are some actions that we must take if some special
  * files are written to. Here's the list of files we watch:
  *
@@ -136,10 +137,10 @@ struct fdCallback {
 };
 
 struct pciDevice **pciDevices = NULL;
-size_t nPciDevices = 0;
+size_t nPCIDevices = 0;
 
 struct pciDriver **pciDrivers = NULL;
-size_t nPciDrivers = 0;
+size_t nPCIDrivers = 0;
 
 struct fdCallback *callbacks = NULL;
 size_t nCallbacks = 0;
@@ -200,8 +201,8 @@ pci_read_file(const char *path,
     char *newpath;
 
     if (virAsprintfQuiet(&newpath, "%s/%s",
-                         fakesysfsdir,
-                         path + strlen(PCI_SYSFS_PREFIX)) < 0) {
+                         fakesysfspcidir,
+                         path + strlen(SYSFS_PCI_PREFIX)) < 0) {
         errno = ENOMEM;
         goto cleanup;
     }
@@ -219,7 +220,7 @@ pci_read_file(const char *path,
         goto cleanup;
 
     ret = 0;
-cleanup:
+ cleanup:
     VIR_FREE(newpath);
     realclose(fd);
     return ret;
@@ -229,13 +230,12 @@ static int
 getrealpath(char **newpath,
             const char *path)
 {
-    if (!fakesysfsdir)
-        init_env();
+    init_env();
 
-    if (STRPREFIX(path, PCI_SYSFS_PREFIX)) {
+    if (STRPREFIX(path, SYSFS_PCI_PREFIX)) {
         if (virAsprintfQuiet(newpath, "%s/%s",
-                             fakesysfsdir,
-                             path + strlen(PCI_SYSFS_PREFIX)) < 0) {
+                             fakesysfspcidir,
+                             path + strlen(SYSFS_PCI_PREFIX)) < 0) {
             errno = ENOMEM;
             return -1;
         }
@@ -283,7 +283,7 @@ add_fd(int fd, const char *path)
 
     callbacks[nCallbacks++].fd = fd;
     ret = 0;
-cleanup:
+ cleanup:
     return ret;
 }
 
@@ -307,7 +307,7 @@ remove_fd(int fd)
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     return ret;
 }
 
@@ -343,7 +343,7 @@ pci_device_new_from_stub(const struct pciDevice *data)
     if (VIR_ALLOC_QUIET(dev) < 0 ||
         virAsprintfQuiet(&configSrc, "%s/virpcitestdata/%s.config",
                          abs_srcdir, id) < 0 ||
-        virAsprintfQuiet(&devpath, "%s/devices/%s", fakesysfsdir, data->id) < 0)
+        virAsprintfQuiet(&devpath, "%s/devices/%s", fakesysfspcidir, data->id) < 0)
         ABORT_OOM();
 
     VIR_FREE(id);
@@ -390,7 +390,7 @@ pci_device_new_from_stub(const struct pciDevice *data)
     if (pci_device_autobind(dev) < 0)
         ABORT("Unable to bind: %s", data->id);
 
-    if (VIR_APPEND_ELEMENT_QUIET(pciDevices, nPciDevices, dev) < 0)
+    if (VIR_APPEND_ELEMENT_QUIET(pciDevices, nPCIDevices, dev) < 0)
         ABORT_OOM();
 
     VIR_FREE(devpath);
@@ -401,7 +401,7 @@ static struct pciDevice *
 pci_device_find_by_id(const char *id)
 {
     size_t i;
-    for (i = 0; i < nPciDevices; i++) {
+    for (i = 0; i < nPCIDevices; i++) {
         struct pciDevice *dev = pciDevices[i];
 
         if (STREQ(dev->id, id))
@@ -449,7 +449,7 @@ pci_driver_new(const char *name, int fail, ...)
 
     if (VIR_ALLOC_QUIET(driver) < 0 ||
         VIR_STRDUP_QUIET(driver->name, name) < 0 ||
-        virAsprintfQuiet(&driverpath, "%s/drivers/%s", fakesysfsdir, name) < 0)
+        virAsprintfQuiet(&driverpath, "%s/drivers/%s", fakesysfspcidir, name) < 0)
         ABORT_OOM();
 
     driver->fail = fail;
@@ -479,7 +479,7 @@ pci_driver_new(const char *name, int fail, ...)
     make_file(driverpath, "new_id", NULL, -1);
     make_file(driverpath, "remove_id", NULL, -1);
 
-    if (VIR_APPEND_ELEMENT_QUIET(pciDrivers, nPciDrivers, driver) < 0)
+    if (VIR_APPEND_ELEMENT_QUIET(pciDrivers, nPCIDrivers, driver) < 0)
         ABORT_OOM();
 }
 
@@ -488,7 +488,7 @@ pci_driver_find_by_dev(struct pciDevice *dev)
 {
     size_t i;
 
-    for (i = 0; i < nPciDrivers; i++) {
+    for (i = 0; i < nPCIDrivers; i++) {
         struct pciDriver *driver = pciDrivers[i];
         size_t j;
 
@@ -507,7 +507,7 @@ pci_driver_find_by_path(const char *path)
 {
     size_t i;
 
-    for (i = 0; i < nPciDrivers; i++) {
+    for (i = 0; i < nPCIDrivers; i++) {
         struct pciDriver *driver = pciDrivers[i];
 
         if (strstr(path, driver->name))
@@ -532,9 +532,9 @@ pci_driver_bind(struct pciDriver *driver,
 
     /* Make symlink under device tree */
     if (virAsprintfQuiet(&devpath, "%s/devices/%s/driver",
-                         fakesysfsdir, dev->id) < 0 ||
+                         fakesysfspcidir, dev->id) < 0 ||
         virAsprintfQuiet(&driverpath, "%s/drivers/%s",
-                         fakesysfsdir, driver->name) < 0) {
+                         fakesysfspcidir, driver->name) < 0) {
         errno = ENOMEM;
         goto cleanup;
     }
@@ -546,9 +546,9 @@ pci_driver_bind(struct pciDriver *driver,
     VIR_FREE(devpath);
     VIR_FREE(driverpath);
     if (virAsprintfQuiet(&devpath, "%s/devices/%s",
-                         fakesysfsdir, dev->id) < 0 ||
+                         fakesysfspcidir, dev->id) < 0 ||
         virAsprintfQuiet(&driverpath, "%s/drivers/%s/%s",
-                         fakesysfsdir, driver->name, dev->id) < 0) {
+                         fakesysfspcidir, driver->name, dev->id) < 0) {
         errno = ENOMEM;
         goto cleanup;
     }
@@ -558,7 +558,7 @@ pci_driver_bind(struct pciDriver *driver,
 
     dev->driver = driver;
     ret = 0;
-cleanup:
+ cleanup:
     VIR_FREE(devpath);
     VIR_FREE(driverpath);
     return ret;
@@ -579,9 +579,9 @@ pci_driver_unbind(struct pciDriver *driver,
 
     /* Make symlink under device tree */
     if (virAsprintfQuiet(&devpath, "%s/devices/%s/driver",
-                         fakesysfsdir, dev->id) < 0 ||
+                         fakesysfspcidir, dev->id) < 0 ||
         virAsprintfQuiet(&driverpath, "%s/drivers/%s/%s",
-                         fakesysfsdir, driver->name, dev->id) < 0) {
+                         fakesysfspcidir, driver->name, dev->id) < 0) {
         errno = ENOMEM;
         goto cleanup;
     }
@@ -592,7 +592,7 @@ pci_driver_unbind(struct pciDriver *driver,
 
     dev->driver = NULL;
     ret = 0;
-cleanup:
+ cleanup:
     VIR_FREE(devpath);
     VIR_FREE(driverpath);
     return ret;
@@ -649,7 +649,7 @@ pci_driver_handle_bind(const char *path)
     }
 
     ret = pci_driver_bind(driver, dev);
-cleanup:
+ cleanup:
     return ret;
 }
 
@@ -666,7 +666,7 @@ pci_driver_handle_unbind(const char *path)
     }
 
     ret = pci_driver_unbind(dev->driver, dev);
-cleanup:
+ cleanup:
     return ret;
 }
 static int
@@ -709,7 +709,7 @@ pci_driver_handle_new_id(const char *path)
         driver->len++;
     }
 
-    for (i = 0; i < nPciDevices; i++) {
+    for (i = 0; i < nPCIDevices; i++) {
         struct pciDevice *dev = pciDevices[i];
 
         if (!dev->driver &&
@@ -720,7 +720,7 @@ pci_driver_handle_new_id(const char *path)
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     return ret;
 }
 
@@ -761,7 +761,7 @@ pci_driver_handle_remove_id(const char *path)
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     return ret;
 }
 
@@ -801,13 +801,20 @@ init_syms(void)
 static void
 init_env(void)
 {
-    if (fakesysfsdir)
+    if (fakerootdir && fakesysfspcidir)
         return;
 
-    if (!(fakesysfsdir = getenv("LIBVIRT_FAKE_SYSFS_DIR")))
-        ABORT("Missing LIBVIRT_FAKE_SYSFS_DIR env variable\n");
+    if (!(fakerootdir = getenv("LIBVIRT_FAKE_ROOT_DIR")))
+        ABORT("Missing LIBVIRT_FAKE_ROOT_DIR env variable\n");
 
-    make_file(fakesysfsdir, "drivers_probe", NULL, -1);
+    if (virAsprintfQuiet(&fakesysfspcidir, "%s%s",
+                         fakerootdir, SYSFS_PCI_PREFIX) < 0)
+        ABORT_OOM();
+
+    if (virFileMakePath(fakesysfspcidir) < 0)
+        ABORT("Unable to create: %s", fakesysfspcidir);
+
+    make_file(fakesysfspcidir, "drivers_probe", NULL, -1);
 
 # define MAKE_PCI_DRIVER(name, ...)                                     \
     pci_driver_new(name, 0, __VA_ARGS__, -1, -1)
@@ -854,7 +861,7 @@ access(const char *path, int mode)
 
     init_syms();
 
-    if (STRPREFIX(path, PCI_SYSFS_PREFIX)) {
+    if (STRPREFIX(path, SYSFS_PCI_PREFIX)) {
         char *newpath;
         if (getrealpath(&newpath, path) < 0)
             return -1;
@@ -873,7 +880,7 @@ __lxstat(int ver, const char *path, struct stat *sb)
 
     init_syms();
 
-    if (STRPREFIX(path, PCI_SYSFS_PREFIX)) {
+    if (STRPREFIX(path, SYSFS_PCI_PREFIX)) {
         char *newpath;
         if (getrealpath(&newpath, path) < 0)
             return -1;
@@ -892,7 +899,7 @@ lstat(const char *path, struct stat *sb)
 
     init_syms();
 
-    if (STRPREFIX(path, PCI_SYSFS_PREFIX)) {
+    if (STRPREFIX(path, SYSFS_PCI_PREFIX)) {
         char *newpath;
         if (getrealpath(&newpath, path) < 0)
             return -1;
@@ -911,7 +918,7 @@ __xstat(int ver, const char *path, struct stat *sb)
 
     init_syms();
 
-    if (STRPREFIX(path, PCI_SYSFS_PREFIX)) {
+    if (STRPREFIX(path, SYSFS_PCI_PREFIX)) {
         char *newpath;
         if (getrealpath(&newpath, path) < 0)
             return -1;
@@ -930,7 +937,7 @@ stat(const char *path, struct stat *sb)
 
     init_syms();
 
-    if (STRPREFIX(path, PCI_SYSFS_PREFIX)) {
+    if (STRPREFIX(path, SYSFS_PCI_PREFIX)) {
         char *newpath;
         if (getrealpath(&newpath, path) < 0)
             return -1;
@@ -949,7 +956,7 @@ canonicalize_file_name(const char *path)
 
     init_syms();
 
-    if (STRPREFIX(path, PCI_SYSFS_PREFIX)) {
+    if (STRPREFIX(path, SYSFS_PCI_PREFIX)) {
         char *newpath;
         if (getrealpath(&newpath, path) < 0)
             return NULL;
@@ -969,7 +976,7 @@ open(const char *path, int flags, ...)
 
     init_syms();
 
-    if (STRPREFIX(path, PCI_SYSFS_PREFIX) &&
+    if (STRPREFIX(path, SYSFS_PCI_PREFIX) &&
         getrealpath(&newpath, path) < 0)
         return -1;
 
@@ -986,7 +993,7 @@ open(const char *path, int flags, ...)
 
     /* Catch both: /sys/bus/pci/drivers/... and
      * /sys/bus/pci/device/.../driver/... */
-    if (ret >= 0 && STRPREFIX(path, PCI_SYSFS_PREFIX) &&
+    if (ret >= 0 && STRPREFIX(path, SYSFS_PCI_PREFIX) &&
         strstr(path, "driver") && add_fd(ret, path) < 0) {
         realclose(ret);
         ret = -1;
@@ -1004,7 +1011,7 @@ opendir(const char *path)
 
     init_syms();
 
-    if (STRPREFIX(path, PCI_SYSFS_PREFIX) &&
+    if (STRPREFIX(path, SYSFS_PCI_PREFIX) &&
         getrealpath(&newpath, path) < 0)
         return NULL;
 

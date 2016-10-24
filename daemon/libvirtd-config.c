@@ -1,7 +1,7 @@
 /*
- * libvirtd.c: daemon start of day, guest process & i/o management
+ * libvirtd-config.c: daemon start of day, guest process & i/o management
  *
- * Copyright (C) 2006-2012 Red Hat, Inc.
+ * Copyright (C) 2006-2012, 2014, 2015 Red Hat, Inc.
  * Copyright (C) 2006 Daniel P. Berrange
  *
  * This library is free software; you can redistribute it and/or
@@ -36,6 +36,8 @@
 #include "virutil.h"
 
 #define VIR_FROM_THIS VIR_FROM_CONF
+
+VIR_LOG_INIT("daemon.libvirtd-config");
 
 /* Allocate an array of malloc'd strings from the config file, filename
  * (used only in diagnostics), using handle "conf".  Upon error, return -1
@@ -121,8 +123,8 @@ checkType(virConfValuePtr p, const char *filename,
         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                        _("remoteReadConfigFile: %s: %s: invalid type:"
                          " got %s; expected %s"), filename, key,
-                       virConfTypeName(p->type),
-                       virConfTypeName(required_type));
+                       virConfTypeToString(p->type),
+                       virConfTypeToString(required_type));
         return -1;
     }
     return 0;
@@ -144,19 +146,37 @@ checkType(virConfValuePtr p, const char *filename,
         }                                                               \
     } while (0)
 
-/* Like GET_CONF_STR, but for integral values.  */
+/* Like GET_CONF_STR, but for signed integral values.  */
 #define GET_CONF_INT(conf, filename, var_name)                          \
     do {                                                                \
         virConfValuePtr p = virConfGetValue(conf, #var_name);           \
         if (p) {                                                        \
-            if (checkType(p, filename, #var_name, VIR_CONF_LONG) < 0)   \
+            if (p->type != VIR_CONF_ULONG &&                            \
+                checkType(p, filename, #var_name, VIR_CONF_LONG) < 0)   \
+                goto error;                                             \
+            data->var_name = p->l;                                      \
+        }                                                               \
+    } while (0)
+
+/* Like GET_CONF_STR, but for unsigned integral values.  */
+#define GET_CONF_UINT(conf, filename, var_name)                         \
+    do {                                                                \
+        virConfValuePtr p = virConfGetValue(conf, #var_name);           \
+        if (p) {                                                        \
+            if (checkType(p, filename, #var_name, VIR_CONF_ULONG) < 0)  \
                 goto error;                                             \
             data->var_name = p->l;                                      \
         }                                                               \
     } while (0)
 
 
-static int remoteConfigGetAuth(virConfPtr conf, const char *key, int *auth, const char *filename) {
+
+static int
+remoteConfigGetAuth(virConfPtr conf,
+                    const char *key,
+                    int *auth,
+                    const char *filename)
+{
     virConfValuePtr p;
 
     p = virConfGetValue(conf, key);
@@ -208,7 +228,7 @@ daemonConfigFilePath(bool privileged, char **configfile)
 
     return 0;
 
-error:
+ error:
     return -1;
 }
 
@@ -244,7 +264,8 @@ daemonConfigNew(bool privileged ATTRIBUTE_UNUSED)
 
     if (VIR_STRDUP(data->unix_sock_rw_perms,
                    data->auth_unix_rw == REMOTE_AUTH_POLKIT ? "0777" : "0700") < 0 ||
-        VIR_STRDUP(data->unix_sock_ro_perms, "0777") < 0)
+        VIR_STRDUP(data->unix_sock_ro_perms, "0777") < 0 ||
+        VIR_STRDUP(data->unix_sock_admin_perms, "0700") < 0)
         goto error;
 
 #if WITH_SASL
@@ -258,21 +279,28 @@ daemonConfigNew(bool privileged ATTRIBUTE_UNUSED)
 
     data->min_workers = 5;
     data->max_workers = 20;
-    data->max_clients = 20;
+    data->max_clients = 5000;
+    data->max_anonymous_clients = 20;
 
     data->prio_workers = 5;
 
     data->max_requests = 20;
     data->max_client_requests = 5;
 
-    data->log_buffer_size = 64;
-
     data->audit_level = 1;
     data->audit_logging = 0;
 
     data->keepalive_interval = 5;
     data->keepalive_count = 5;
-    data->keepalive_required = 0;
+
+    data->admin_min_workers = 5;
+    data->admin_max_workers = 20;
+    data->admin_max_clients = 5000;
+    data->admin_max_queued_clients = 20;
+    data->admin_max_client_requests = 5;
+
+    data->admin_keepalive_interval = 5;
+    data->admin_keepalive_count = 5;
 
     localhost = virGetHostname();
     if (localhost == NULL) {
@@ -295,7 +323,7 @@ daemonConfigNew(bool privileged ATTRIBUTE_UNUSED)
 
     return data;
 
-error:
+ error:
     daemonConfigFree(data);
     return NULL;
 }
@@ -318,6 +346,7 @@ daemonConfigFree(struct daemonConfig *data)
     }
     VIR_FREE(data->access_drivers);
 
+    VIR_FREE(data->unix_sock_admin_perms);
     VIR_FREE(data->unix_sock_ro_perms);
     VIR_FREE(data->unix_sock_rw_perms);
     VIR_FREE(data->unix_sock_group);
@@ -355,8 +384,8 @@ daemonConfigLoadOptions(struct daemonConfig *data,
                         const char *filename,
                         virConfPtr conf)
 {
-    GET_CONF_INT(conf, filename, listen_tcp);
-    GET_CONF_INT(conf, filename, listen_tls);
+    GET_CONF_UINT(conf, filename, listen_tcp);
+    GET_CONF_UINT(conf, filename, listen_tls);
     GET_CONF_STR(conf, filename, tls_port);
     GET_CONF_STR(conf, filename, tcp_port);
     GET_CONF_STR(conf, filename, listen_addr);
@@ -385,16 +414,17 @@ daemonConfigLoadOptions(struct daemonConfig *data,
         goto error;
 
     GET_CONF_STR(conf, filename, unix_sock_group);
+    GET_CONF_STR(conf, filename, unix_sock_admin_perms);
     GET_CONF_STR(conf, filename, unix_sock_ro_perms);
     GET_CONF_STR(conf, filename, unix_sock_rw_perms);
 
     GET_CONF_STR(conf, filename, unix_sock_dir);
 
-    GET_CONF_INT(conf, filename, mdns_adv);
+    GET_CONF_UINT(conf, filename, mdns_adv);
     GET_CONF_STR(conf, filename, mdns_name);
 
-    GET_CONF_INT(conf, filename, tls_no_sanity_certificate);
-    GET_CONF_INT(conf, filename, tls_no_verify_certificate);
+    GET_CONF_UINT(conf, filename, tls_no_sanity_certificate);
+    GET_CONF_UINT(conf, filename, tls_no_verify_certificate);
 
     GET_CONF_STR(conf, filename, key_file);
     GET_CONF_STR(conf, filename, cert_file);
@@ -411,33 +441,41 @@ daemonConfigLoadOptions(struct daemonConfig *data,
         goto error;
 
 
-    GET_CONF_INT(conf, filename, min_workers);
-    GET_CONF_INT(conf, filename, max_workers);
-    GET_CONF_INT(conf, filename, max_clients);
-    GET_CONF_INT(conf, filename, max_queued_clients);
+    GET_CONF_UINT(conf, filename, min_workers);
+    GET_CONF_UINT(conf, filename, max_workers);
+    GET_CONF_UINT(conf, filename, max_clients);
+    GET_CONF_UINT(conf, filename, max_queued_clients);
+    GET_CONF_UINT(conf, filename, max_anonymous_clients);
 
-    GET_CONF_INT(conf, filename, prio_workers);
+    GET_CONF_UINT(conf, filename, prio_workers);
 
     GET_CONF_INT(conf, filename, max_requests);
-    GET_CONF_INT(conf, filename, max_client_requests);
+    GET_CONF_UINT(conf, filename, max_client_requests);
 
-    GET_CONF_INT(conf, filename, audit_level);
-    GET_CONF_INT(conf, filename, audit_logging);
+    GET_CONF_UINT(conf, filename, admin_min_workers);
+    GET_CONF_UINT(conf, filename, admin_max_workers);
+    GET_CONF_UINT(conf, filename, admin_max_clients);
+    GET_CONF_UINT(conf, filename, admin_max_queued_clients);
+    GET_CONF_UINT(conf, filename, admin_max_client_requests);
+
+    GET_CONF_UINT(conf, filename, audit_level);
+    GET_CONF_UINT(conf, filename, audit_logging);
 
     GET_CONF_STR(conf, filename, host_uuid);
 
-    GET_CONF_INT(conf, filename, log_level);
+    GET_CONF_UINT(conf, filename, log_level);
     GET_CONF_STR(conf, filename, log_filters);
     GET_CONF_STR(conf, filename, log_outputs);
-    GET_CONF_INT(conf, filename, log_buffer_size);
 
     GET_CONF_INT(conf, filename, keepalive_interval);
-    GET_CONF_INT(conf, filename, keepalive_count);
-    GET_CONF_INT(conf, filename, keepalive_required);
+    GET_CONF_UINT(conf, filename, keepalive_count);
+
+    GET_CONF_INT(conf, filename, admin_keepalive_interval);
+    GET_CONF_UINT(conf, filename, admin_keepalive_count);
 
     return 0;
 
-error:
+ error:
     return -1;
 }
 

@@ -18,10 +18,12 @@
     <disk type='file' device='disk'>
       <driver name='tap2' type='raw'/>
       <source file='/root/some.img'/>
+      <backingStore/>
       <target dev='xvda' bus='xen'/>
     </disk>
     <console type='pty'>
       <target type='xen' port='0'/>
     </console>
+    <memballoon model='xen'/>
   </devices>
 </domain>

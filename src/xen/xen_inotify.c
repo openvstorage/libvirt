@@ -1,10 +1,10 @@
 /*
- * xen_inofify.c: Xen notification of xml file activity in the
+ * xen_inotify.c: Xen notification of xml file activity in the
  *                following dirs:
  *                /etc/xen
  *                /var/lib/xend/domains
  *
- * Copyright (C) 2010-2013 Red Hat, Inc.
+ * Copyright (C) 2010-2014 Red Hat, Inc.
  * Copyright (C) 2008 VirtualIron
  *
  * This library is free software; you can redistribute it and/or
@@ -43,6 +43,8 @@
 #include "xm_internal.h" /* for xenXMDomainConfigParse */
 
 #define VIR_FROM_THIS VIR_FROM_XEN_INOTIFY
+
+VIR_LOG_INIT("xen.xen_inotify");
 
 static int
 xenInotifyXenCacheLookup(virConnectPtr conn,
@@ -173,17 +175,8 @@ xenInotifyXendDomainsDirRemoveEntry(virConnectPtr conn, const char *fname)
             VIR_FREE(priv->configInfoList->doms[i]->name);
             VIR_FREE(priv->configInfoList->doms[i]);
 
-            if (i < (priv->configInfoList->count - 1))
-                memmove(priv->configInfoList->doms + i,
-                        priv->configInfoList->doms + i + 1,
-                        sizeof(*(priv->configInfoList->doms)) *
-                                (priv->configInfoList->count - (i + 1)));
-
-            if (VIR_REALLOC_N(priv->configInfoList->doms,
-                              priv->configInfoList->count - 1) < 0) {
-                ; /* Failure to reduce memory allocation isn't fatal */
-            }
-            priv->configInfoList->count--;
+            VIR_DELETE_ELEMENT(priv->configInfoList->doms, i,
+                               priv->configInfoList->count);
             return 0;
         }
     }
@@ -224,11 +217,11 @@ xenInotifyRemoveDomainConfigInfo(virConnectPtr conn, const char *fname)
 }
 
 static int
-xenInotifyAddDomainConfigInfo(virConnectPtr conn, const char *fname)
+xenInotifyAddDomainConfigInfo(virConnectPtr conn, const char *fname, time_t now)
 {
     xenUnifiedPrivatePtr priv = conn->privateData;
     return priv->useXenConfigCache ?
-        xenXMConfigCacheAddFile(conn, fname) :
+        xenXMConfigCacheAddFile(conn, fname, now) :
         xenInotifyXendDomainsDirAddEntry(conn, fname);
 }
 
@@ -245,6 +238,7 @@ xenInotifyEvent(int watch ATTRIBUTE_UNUSED,
     char *tmp, *name;
     virConnectPtr conn = data;
     xenUnifiedPrivatePtr priv = NULL;
+    time_t now = time(NULL);
 
     VIR_DEBUG("got inotify event");
 
@@ -258,7 +252,7 @@ xenInotifyEvent(int watch ATTRIBUTE_UNUSED,
 
     xenUnifiedLock(priv);
 
-reread:
+ reread:
     got = read(fd, buf, sizeof(buf));
     if (got == -1) {
         if (errno == EINTR)
@@ -307,7 +301,7 @@ reread:
             }
         } else if (e->mask & (IN_CREATE | IN_CLOSE_WRITE | IN_MOVED_TO)) {
             virObjectEventPtr event;
-            if (xenInotifyAddDomainConfigInfo(conn, fname) < 0) {
+            if (xenInotifyAddDomainConfigInfo(conn, fname, now) < 0) {
                 virReportError(VIR_ERR_INTERNAL_ERROR,
                                "%s", _("Error adding file to config cache"));
                 goto cleanup;
@@ -327,7 +321,7 @@ reread:
 
     }
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
 }
 
@@ -350,6 +344,8 @@ xenInotifyOpen(virConnectPtr conn,
     struct dirent *ent;
     char *path;
     xenUnifiedPrivatePtr priv = conn->privateData;
+    int direrr;
+    time_t now = time(NULL);
 
     virCheckFlags(VIR_CONNECT_RO, -1);
 
@@ -370,7 +366,7 @@ xenInotifyOpen(virConnectPtr conn,
                                  priv->configDir);
             return -1;
         }
-        while ((ent = readdir(dh))) {
+        while ((direrr = virDirRead(dh, &ent, priv->configDir)) > 0) {
             if (STRPREFIX(ent->d_name, "."))
                 continue;
 
@@ -380,7 +376,7 @@ xenInotifyOpen(virConnectPtr conn,
                 return -1;
             }
 
-            if (xenInotifyAddDomainConfigInfo(conn, path) < 0) {
+            if (xenInotifyAddDomainConfigInfo(conn, path, now) < 0) {
                 virReportError(VIR_ERR_INTERNAL_ERROR,
                                "%s", _("Error adding file to config list"));
                 closedir(dh);
@@ -391,6 +387,8 @@ xenInotifyOpen(virConnectPtr conn,
             VIR_FREE(path);
         }
         closedir(dh);
+        if (direrr < 0)
+            return -1;
     }
 
     if ((priv->inotifyFD = inotify_init()) < 0) {

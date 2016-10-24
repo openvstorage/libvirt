@@ -24,6 +24,8 @@
 #ifndef __QEMUD_CONF_H
 # define __QEMUD_CONF_H
 
+# include <unistd.h>
+
 # include "virebtables.h"
 # include "internal.h"
 # include "capabilities.h"
@@ -44,6 +46,8 @@
 # include "locking/lock_manager.h"
 # include "qemu_capabilities.h"
 # include "virclosecallbacks.h"
+# include "virhostdev.h"
+# include "virfile.h"
 
 # ifdef CPU_SETSIZE /* Linux */
 #  define QEMUD_CPUMASK_LEN CPU_SETSIZE
@@ -52,6 +56,8 @@
 # else
 #  error "Port me"
 # endif
+
+# define QEMU_DRIVER_NAME "QEMU"
 
 typedef struct _virQEMUDriver virQEMUDriver;
 typedef virQEMUDriver *virQEMUDriverPtr;
@@ -77,7 +83,6 @@ typedef virQEMUDriverConfig *virQEMUDriverConfigPtr;
 struct _virQEMUDriverConfig {
     virObject parent;
 
-    bool privileged;
     const char *uri;
 
     uid_t user;
@@ -100,6 +105,8 @@ struct _virQEMUDriverConfig {
     char *cacheDir;
     char *saveDir;
     char *snapshotDir;
+    char *channelTargetDir;
+    char *nvramDir;
 
     bool vncAutoUnixSocket;
     bool vncTLS;
@@ -123,8 +130,9 @@ struct _virQEMUDriverConfig {
     int webSocketPortMin;
     int webSocketPortMax;
 
-    char *hugetlbfsMount;
-    char *hugepagePath;
+    virHugeTLBFSPtr hugetlbfs;
+    size_t nhugetlbfs;
+
     char *bridgeHelperName;
 
     bool macFilter;
@@ -160,13 +168,19 @@ struct _virQEMUDriverConfig {
 
     int seccompSandbox;
 
+    char *migrateHost;
     /* The default for -incoming */
     char *migrationAddress;
     int migrationPortMin;
     int migrationPortMax;
 
-    /* Whether incoming pc-1.0 migration should come from qemu-kvm */
-    bool allow_incoming_qemukvm;
+    bool logTimestamp;
+    bool stdioLogD;
+
+    /* Pairs of loader:nvram paths. The list is @nloader items long */
+    char **loader;
+    char **nvram;
+    size_t nloader;
 };
 
 /* Main driver state */
@@ -181,10 +195,13 @@ struct _virQEMUDriver {
     virThreadPoolPtr workerPool;
 
     /* Atomic increment only */
-    int nextvmid;
+    int lastvmid;
 
     /* Atomic inc/dec only */
     unsigned int nactive;
+
+    /* Immutable value */
+    bool privileged;
 
     /* Immutable pointers. Caller must provide locking */
     virStateInhibitCallback inhibitCallback;
@@ -216,13 +233,7 @@ struct _virQEMUDriver {
     /* Immutable pointer. self-locking APIs */
     virSecurityManagerPtr securityManager;
 
-    /* Immutable pointers. Requires locks to be held before
-     * calling APIs. activePciHostdevs must be locked before
-     * inactivePciHostdevs */
-    virPCIDeviceListPtr activePciHostdevs;
-    virPCIDeviceListPtr inactivePciHostdevs;
-    virUSBDeviceListPtr activeUsbHostdevs;
-    virSCSIDeviceListPtr activeScsiHostdevs;
+    virHostdevManagerPtr hostdevMgr;
 
     /* Immutable pointer. Unsafe APIs. XXX */
     virHashTablePtr sharedDevices;
@@ -244,12 +255,15 @@ struct _virQEMUDriver {
 
     /* Immutable pointer, self-clocking APIs */
     virCloseCallbacksPtr closeCallbacks;
+
+    /* Immutable pointer, self-locking APIs */
+    virHashAtomicPtr migrationErrors;
 };
 
 typedef struct _qemuDomainCmdlineDef qemuDomainCmdlineDef;
 typedef qemuDomainCmdlineDef *qemuDomainCmdlineDefPtr;
 struct _qemuDomainCmdlineDef {
-    unsigned int num_args;
+    size_t num_args;
     char **args;
 
     unsigned int num_env;
@@ -267,6 +281,7 @@ int virQEMUDriverConfigLoadFile(virQEMUDriverConfigPtr cfg,
                                 const char *filename);
 
 virQEMUDriverConfigPtr virQEMUDriverGetConfig(virQEMUDriverPtr driver);
+bool virQEMUDriverIsPrivileged(virQEMUDriverPtr driver);
 
 virCapsPtr virQEMUDriverCreateCapabilities(virQEMUDriverPtr driver);
 virCapsPtr virQEMUDriverGetCapabilities(virQEMUDriverPtr driver,
@@ -284,14 +299,13 @@ typedef qemuSharedDeviceEntry *qemuSharedDeviceEntryPtr;
 
 bool qemuSharedDeviceEntryDomainExists(qemuSharedDeviceEntryPtr entry,
                                        const char *name,
-                                       int *index)
+                                       int *idx)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2);
 
-char * qemuGetSharedDeviceKey(const char *disk_path)
+char *qemuGetSharedDeviceKey(const char *disk_path)
     ATTRIBUTE_NONNULL(1);
 
-void qemuSharedDeviceEntryFree(void *payload, const void *name)
-    ATTRIBUTE_NONNULL(1);
+void qemuSharedDeviceEntryFree(void *payload, const void *name);
 
 int qemuAddSharedDevice(virQEMUDriverPtr driver,
                         virDomainDeviceDefPtr dev,
@@ -303,15 +317,20 @@ int qemuRemoveSharedDevice(virQEMUDriverPtr driver,
                            const char *name)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_NONNULL(3);
 
+int qemuRemoveSharedDisk(virQEMUDriverPtr driver,
+                         virDomainDiskDefPtr disk,
+                         const char *name)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_NONNULL(3);
+
 int qemuSetUnprivSGIO(virDomainDeviceDefPtr dev);
 
 int qemuDriverAllocateID(virQEMUDriverPtr driver);
 virDomainXMLOptionPtr virQEMUDriverCreateXMLConf(virQEMUDriverPtr driver);
 
-int qemuTranslateDiskSourcePool(virConnectPtr conn,
-                                virDomainDiskDefPtr def);
-
 int qemuTranslateSnapshotDiskSourcePool(virConnectPtr conn,
                                         virDomainSnapshotDiskDefPtr def);
 
+char * qemuGetHugepagePath(virHugeTLBFSPtr hugepage);
+char * qemuGetDefaultHugepath(virHugeTLBFSPtr hugetlbfs,
+                              size_t nhugetlbfs);
 #endif /* __QEMUD_CONF_H */

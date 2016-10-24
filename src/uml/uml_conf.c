@@ -1,7 +1,7 @@
 /*
  * uml_conf.c: UML driver configuration
  *
- * Copyright (C) 2006-2013 Red Hat, Inc.
+ * Copyright (C) 2006-2014 Red Hat, Inc.
  * Copyright (C) 2006 Daniel P. Berrange
  *
  * This library is free software; you can redistribute it and/or
@@ -50,20 +50,22 @@
 
 #define VIR_FROM_THIS VIR_FROM_UML
 
+VIR_LOG_INIT("uml.uml_conf");
 
-virCapsPtr umlCapsInit(void) {
+virCapsPtr umlCapsInit(void)
+{
     virCapsPtr caps;
     virCapsGuestPtr guest;
 
     if ((caps = virCapabilitiesNew(virArchFromHost(),
-                                   0, 0)) == NULL)
+                                   false, false)) == NULL)
         goto error;
 
     /* Some machines have problematic NUMA toplogy causing
      * unexpected failures. We don't want to break the QEMU
      * driver in this scenario, so log errors & carry on
      */
-    if (nodeCapsInitNUMA(caps) < 0) {
+    if (nodeCapsInitNUMA(NULL, caps) < 0) {
         virCapabilitiesFreeNUMAInfo(caps);
         VIR_WARN("Failed to query host NUMA topology, disabling NUMA capabilities");
     }
@@ -78,7 +80,7 @@ virCapsPtr umlCapsInit(void) {
     }
 
     if ((guest = virCapabilitiesAddGuest(caps,
-                                         "uml",
+                                         VIR_DOMAIN_OSTYPE_UML,
                                          caps->host.arch,
                                          NULL,
                                          NULL,
@@ -87,7 +89,7 @@ virCapsPtr umlCapsInit(void) {
         goto error;
 
     if (virCapabilitiesAddGuestDomain(guest,
-                                      "uml",
+                                      VIR_DOMAIN_VIRT_UML,
                                       NULL,
                                       NULL,
                                       0,
@@ -103,8 +105,7 @@ virCapsPtr umlCapsInit(void) {
 
 
 static int
-umlConnectTapDevice(virConnectPtr conn,
-                    virDomainDefPtr vm,
+umlConnectTapDevice(virDomainDefPtr vm,
                     virDomainNetDefPtr net,
                     const char *bridge)
 {
@@ -122,7 +123,7 @@ umlConnectTapDevice(virConnectPtr conn,
     }
 
     if (virNetDevTapCreateInBridgePort(bridge, &net->ifname, &net->mac,
-                                       vm->uuid, &tapfd, 1,
+                                       vm->uuid, net->backend.tap, &tapfd, 1,
                                        virDomainNetGetActualVirtPortProfile(net),
                                        virDomainNetGetActualVlan(net),
                                        VIR_NETDEV_TAP_CREATE_IFUP |
@@ -133,7 +134,7 @@ umlConnectTapDevice(virConnectPtr conn,
     }
 
     if (net->filter) {
-        if (virDomainConfNWFilterInstantiate(conn, vm->uuid, net) < 0) {
+        if (virDomainConfNWFilterInstantiate(vm->uuid, net) < 0) {
             if (template_ifname)
                 VIR_FREE(net->ifname);
             goto error;
@@ -143,7 +144,7 @@ umlConnectTapDevice(virConnectPtr conn,
     VIR_FORCE_CLOSE(tapfd);
     return 0;
 
-error:
+ error:
     VIR_FORCE_CLOSE(tapfd);
     return -1;
 }
@@ -170,15 +171,19 @@ umlBuildCommandLineNet(virConnectPtr conn,
     case VIR_DOMAIN_NET_TYPE_ETHERNET:
         /* ethNNN=tuntap,tapname,macaddr,gateway */
         virBufferAddLit(&buf, "tuntap,");
-        if (def->ifname) {
+        if (def->ifname)
             virBufferAdd(&buf, def->ifname, -1);
-        }
-        if (def->data.ethernet.ipaddr) {
+        if (def->nips > 0) {
             virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                            _("IP address not supported for ethernet interface"));
             goto error;
         }
         break;
+
+    case VIR_DOMAIN_NET_TYPE_VHOSTUSER:
+        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                       _("vhostuser networking type not supported"));
+        goto error;
 
     case VIR_DOMAIN_NET_TYPE_SERVER:
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
@@ -188,6 +193,11 @@ umlBuildCommandLineNet(virConnectPtr conn,
     case VIR_DOMAIN_NET_TYPE_CLIENT:
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("TCP client networking type not supported"));
+        goto error;
+
+    case VIR_DOMAIN_NET_TYPE_UDP:
+        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                       _("UDP networking type not supported"));
         goto error;
 
     case VIR_DOMAIN_NET_TYPE_MCAST:
@@ -207,12 +217,11 @@ umlBuildCommandLineNet(virConnectPtr conn,
             goto error;
         }
         bridge = virNetworkGetBridgeName(network);
-        virNetworkFree(network);
-        if (bridge == NULL) {
+        virObjectUnref(network);
+        if (bridge == NULL)
             goto error;
-        }
 
-        if (umlConnectTapDevice(conn, vm, def, bridge) < 0) {
+        if (umlConnectTapDevice(vm, def, bridge) < 0) {
             VIR_FREE(bridge);
             goto error;
         }
@@ -223,7 +232,7 @@ umlBuildCommandLineNet(virConnectPtr conn,
     }
 
     case VIR_DOMAIN_NET_TYPE_BRIDGE:
-        if (umlConnectTapDevice(conn, vm, def,
+        if (umlConnectTapDevice(vm, def,
                                 def->data.bridge.brname) < 0)
             goto error;
 
@@ -264,14 +273,12 @@ umlBuildCommandLineNet(virConnectPtr conn,
                           def->data.socket.port);
     }
 
-    if (virBufferError(&buf)) {
-        virReportOOMError();
+    if (virBufferCheckError(&buf) < 0)
         return NULL;
-    }
 
     return virBufferContentAndReset(&buf);
 
-error:
+ error:
     virBufferFreeAndReset(&buf);
     return NULL;
 }
@@ -409,7 +416,7 @@ virCommandPtr umlBuildCommandLine(virConnectPtr conn,
             goto error;
         }
 
-        virCommandAddArgPair(cmd, disk->dst, disk->src);
+        virCommandAddArgPair(cmd, disk->dst, virDomainDiskGetSource(disk));
     }
 
     for (i = 0; i < vm->def->nnets; i++) {

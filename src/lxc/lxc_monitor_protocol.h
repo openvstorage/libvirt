@@ -13,6 +13,7 @@
 extern "C" {
 #endif
 
+#include "virxdrdefs.h"
 
 enum virLXCMonitorExitStatus {
         VIR_LXC_MONITOR_EXIT_STATUS_ERROR = 0,
@@ -22,7 +23,7 @@ enum virLXCMonitorExitStatus {
 typedef enum virLXCMonitorExitStatus virLXCMonitorExitStatus;
 
 struct virLXCMonitorExitEventMsg {
-        enum virLXCMonitorExitStatus status;
+        virLXCMonitorExitStatus status;
 };
 typedef struct virLXCMonitorExitEventMsg virLXCMonitorExitEventMsg;
 

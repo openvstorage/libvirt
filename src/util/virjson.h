@@ -1,7 +1,7 @@
 /*
  * virjson.h: JSON object parsing/formatting
  *
- * Copyright (C) 2009, 2012-2013 Red Hat, Inc.
+ * Copyright (C) 2009, 2012-2015 Red Hat, Inc.
  * Copyright (C) 2009 Daniel P. Berrange
  *
  * This library is free software; you can redistribute it and/or
@@ -25,6 +25,9 @@
 # define __VIR_JSON_H_
 
 # include "internal.h"
+# include "virbitmap.h"
+
+# include <stdarg.h>
 
 
 typedef enum {
@@ -79,6 +82,16 @@ struct _virJSONValue {
 
 void virJSONValueFree(virJSONValuePtr value);
 
+int virJSONValueObjectCreate(virJSONValuePtr *obj, ...)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_SENTINEL;
+int virJSONValueObjectCreateVArgs(virJSONValuePtr *obj, va_list args)
+    ATTRIBUTE_NONNULL(1);
+int virJSONValueObjectAdd(virJSONValuePtr obj, ...)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_SENTINEL;
+int virJSONValueObjectAddVArgs(virJSONValuePtr obj, va_list args)
+    ATTRIBUTE_NONNULL(1);
+
+
 virJSONValuePtr virJSONValueNewString(const char *data);
 virJSONValuePtr virJSONValueNewStringLen(const char *data, size_t length);
 virJSONValuePtr virJSONValueNewNumberInt(int data);
@@ -90,15 +103,20 @@ virJSONValuePtr virJSONValueNewBoolean(int boolean);
 virJSONValuePtr virJSONValueNewNull(void);
 virJSONValuePtr virJSONValueNewArray(void);
 virJSONValuePtr virJSONValueNewObject(void);
+virJSONValuePtr virJSONValueNewArrayFromBitmap(virBitmapPtr bitmap);
 
 int virJSONValueObjectAppend(virJSONValuePtr object, const char *key, virJSONValuePtr value);
 int virJSONValueArrayAppend(virJSONValuePtr object, virJSONValuePtr value);
 
 int virJSONValueObjectHasKey(virJSONValuePtr object, const char *key);
 virJSONValuePtr virJSONValueObjectGet(virJSONValuePtr object, const char *key);
+virJSONValuePtr virJSONValueObjectGetByType(virJSONValuePtr object,
+                                            const char *key, virJSONType type);
 
-int virJSONValueArraySize(virJSONValuePtr object);
+bool virJSONValueIsArray(virJSONValuePtr array);
+ssize_t virJSONValueArraySize(const virJSONValue *array);
 virJSONValuePtr virJSONValueArrayGet(virJSONValuePtr object, unsigned int element);
+virJSONValuePtr virJSONValueArraySteal(virJSONValuePtr object, unsigned int element);
 
 int virJSONValueObjectKeysNumber(virJSONValuePtr object);
 const char *virJSONValueObjectGetKey(virJSONValuePtr object, unsigned int n);
@@ -111,7 +129,13 @@ int virJSONValueGetNumberLong(virJSONValuePtr object, long long *value);
 int virJSONValueGetNumberUlong(virJSONValuePtr object, unsigned long long *value);
 int virJSONValueGetNumberDouble(virJSONValuePtr object, double *value);
 int virJSONValueGetBoolean(virJSONValuePtr object, bool *value);
-int virJSONValueIsNull(virJSONValuePtr object);
+int virJSONValueGetArrayAsBitmap(const virJSONValue *val, virBitmapPtr *bitmap)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2);
+bool virJSONValueIsNull(virJSONValuePtr object);
+virJSONValuePtr virJSONValueObjectGetObject(virJSONValuePtr object,
+                                            const char *key);
+virJSONValuePtr virJSONValueObjectGetArray(virJSONValuePtr object,
+                                           const char *key);
 
 const char *virJSONValueObjectGetString(virJSONValuePtr object, const char *key);
 int virJSONValueObjectGetNumberInt(virJSONValuePtr object, const char *key, int *value);
@@ -138,5 +162,15 @@ int virJSONValueObjectRemoveKey(virJSONValuePtr object, const char *key,
 virJSONValuePtr virJSONValueFromString(const char *jsonstring);
 char *virJSONValueToString(virJSONValuePtr object,
                            bool pretty);
+
+typedef int (*virJSONValueObjectIteratorFunc)(const char *key,
+                                              const virJSONValue *value,
+                                              void *opaque);
+
+int virJSONValueObjectForeachKeyValue(virJSONValuePtr object,
+                                      virJSONValueObjectIteratorFunc cb,
+                                      void *opaque);
+
+virJSONValuePtr virJSONValueCopy(virJSONValuePtr in);
 
 #endif /* __VIR_JSON_H_ */

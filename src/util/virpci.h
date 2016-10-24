@@ -1,7 +1,7 @@
 /*
  * virpci.h: helper APIs for managing host PCI devices
  *
- * Copyright (C) 2009, 2011-2013 Red Hat, Inc.
+ * Copyright (C) 2009, 2011-2015 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -26,6 +26,7 @@
 
 # include "internal.h"
 # include "virobject.h"
+# include "virutil.h"
 
 typedef struct _virPCIDevice virPCIDevice;
 typedef virPCIDevice *virPCIDevicePtr;
@@ -39,6 +40,43 @@ struct _virPCIDeviceAddress {
     unsigned int bus;
     unsigned int slot;
     unsigned int function;
+};
+
+typedef enum {
+    VIR_PCI_STUB_DRIVER_NONE = 0,
+    VIR_PCI_STUB_DRIVER_XEN,
+    VIR_PCI_STUB_DRIVER_KVM,
+    VIR_PCI_STUB_DRIVER_VFIO,
+    VIR_PCI_STUB_DRIVER_LAST
+} virPCIStubDriver;
+
+VIR_ENUM_DECL(virPCIStubDriver);
+
+typedef enum {
+    VIR_PCIE_LINK_SPEED_NA = 0,
+    VIR_PCIE_LINK_SPEED_25,
+    VIR_PCIE_LINK_SPEED_5,
+    VIR_PCIE_LINK_SPEED_8,
+    VIR_PCIE_LINK_SPEED_LAST
+} virPCIELinkSpeed;
+
+VIR_ENUM_DECL(virPCIELinkSpeed)
+
+typedef struct _virPCIELink virPCIELink;
+typedef virPCIELink *virPCIELinkPtr;
+struct _virPCIELink {
+    int port;
+    virPCIELinkSpeed speed;
+    unsigned int width;
+};
+
+typedef struct _virPCIEDeviceInfo virPCIEDeviceInfo;
+typedef virPCIEDeviceInfo *virPCIEDeviceInfoPtr;
+struct _virPCIEDeviceInfo {
+    /* Not all PCI Express devices have link. For example this 'Root Complex
+     * Integrated Endpoint' and 'Root Complex Event Collector' don't have it. */
+    virPCIELink *link_cap;   /* PCIe device link capabilities */
+    virPCIELink *link_sta;   /* Actually negotiated capabilities */
 };
 
 virPCIDevicePtr virPCIDeviceNew(unsigned int domain,
@@ -62,13 +100,16 @@ int virPCIDeviceReset(virPCIDevicePtr dev,
 void virPCIDeviceSetManaged(virPCIDevice *dev,
                             bool managed);
 unsigned int virPCIDeviceGetManaged(virPCIDevice *dev);
-int virPCIDeviceSetStubDriver(virPCIDevicePtr dev,
-                              const char *driver)
-    ATTRIBUTE_NONNULL(2);
-const char *virPCIDeviceGetStubDriver(virPCIDevicePtr dev);
-void virPCIDeviceSetUsedBy(virPCIDevice *dev,
-                           const char *used_by);
-const char *virPCIDeviceGetUsedBy(virPCIDevice *dev);
+void virPCIDeviceSetStubDriver(virPCIDevicePtr dev,
+                               virPCIStubDriver driver);
+virPCIStubDriver virPCIDeviceGetStubDriver(virPCIDevicePtr dev);
+virPCIDeviceAddressPtr virPCIDeviceGetAddress(virPCIDevicePtr dev);
+int virPCIDeviceSetUsedBy(virPCIDevice *dev,
+                          const char *drv_name,
+                          const char *dom_name);
+void virPCIDeviceGetUsedBy(virPCIDevice *dev,
+                           const char **drv_name,
+                           const char **dom_name);
 unsigned int virPCIDeviceGetUnbindFromStub(virPCIDevicePtr dev);
 void  virPCIDeviceSetUnbindFromStub(virPCIDevice *dev,
                                     bool unbind);
@@ -127,19 +168,20 @@ virPCIDeviceListPtr virPCIDeviceGetIOMMUGroupList(virPCIDevicePtr dev);
 int virPCIDeviceAddressGetIOMMUGroupAddresses(virPCIDeviceAddressPtr devAddr,
                                               virPCIDeviceAddressPtr **iommuGroupDevices,
                                               size_t *nIommuGroupDevices);
-int virPCIDeviceAddressGetIOMMUGroupNum(virPCIDeviceAddressPtr dev);
+int virPCIDeviceAddressGetIOMMUGroupNum(virPCIDeviceAddressPtr addr);
 char *virPCIDeviceGetIOMMUGroupDev(virPCIDevicePtr dev);
 
 int virPCIDeviceIsAssignable(virPCIDevicePtr dev,
                              int strict_acs_check);
 int virPCIDeviceWaitForCleanup(virPCIDevicePtr dev, const char *matcher);
 
-int virPCIGetPhysicalFunction(const char *sysfs_path,
-                              virPCIDeviceAddressPtr *phys_fn);
+int virPCIGetPhysicalFunction(const char *vf_sysfs_path,
+                              virPCIDeviceAddressPtr *pf);
 
 int virPCIGetVirtualFunctions(const char *sysfs_path,
                               virPCIDeviceAddressPtr **virtual_functions,
-                              size_t *num_virtual_functions);
+                              size_t *num_virtual_functions,
+                              unsigned int *max_virtual_functions);
 
 int virPCIIsVirtualFunction(const char *vf_sysfs_device_link);
 
@@ -147,7 +189,7 @@ int virPCIGetVirtualFunctionIndex(const char *pf_sysfs_device_link,
                                         const char *vf_sysfs_device_link,
                                         int *vf_index);
 
-int virPCIDeviceAddressGetSysfsFile(virPCIDeviceAddressPtr dev,
+int virPCIDeviceAddressGetSysfsFile(virPCIDeviceAddressPtr addr,
                                     char **pci_sysfs_device_link);
 
 int virPCIGetNetName(char *device_link_sysfs_path, char **netname);
@@ -168,9 +210,20 @@ int virPCIDeviceAddressParse(char *address, virPCIDeviceAddressPtr bdf);
 int virPCIGetVirtualFunctionInfo(const char *vf_sysfs_device_path,
                                  char **pfname, int *vf_index);
 
-int virPCIDeviceUnbind(virPCIDevicePtr dev, bool reprobe);
+int virPCIDeviceUnbind(virPCIDevicePtr dev);
 int virPCIDeviceGetDriverPathAndName(virPCIDevicePtr dev,
                                      char **path,
                                      char **name);
+
+int virPCIDeviceIsPCIExpress(virPCIDevicePtr dev);
+int virPCIDeviceHasPCIExpressLink(virPCIDevicePtr dev);
+int virPCIDeviceGetLinkCapSta(virPCIDevicePtr dev,
+                              int *ca_port,
+                              unsigned int *cap_speed,
+                              unsigned int *cap_width,
+                              unsigned int *sta_speed,
+                              unsigned int *sta_width);
+
+void virPCIEDeviceInfoFree(virPCIEDeviceInfoPtr dev);
 
 #endif /* __VIR_PCI_H__ */

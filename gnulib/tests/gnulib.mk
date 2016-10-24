@@ -1,6 +1,6 @@
 ## DO NOT EDIT! GENERATED AUTOMATICALLY!
 ## Process this file with automake to produce Makefile.in.
-# Copyright (C) 2002-2014 Free Software Foundation, Inc.
+# Copyright (C) 2002-2016 Free Software Foundation, Inc.
 #
 # This file is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -148,7 +148,6 @@ EXTRA_DIST += test-byteswap.c macros.h
 
 GNULIB_TESTS += test-c-ctype
 check_PROGRAMS += test-c-ctype
-
 EXTRA_DIST += test-c-ctype.c macros.h
 
 ## end   gnulib module c-ctype-tests
@@ -213,6 +212,14 @@ EXTRA_DIST += test-connect.c signature.h macros.h
 
 ## end   gnulib module connect-tests
 
+## begin gnulib module count-leading-zeros-tests
+
+GNULIB_TESTS += test-count-leading-zeros
+check_PROGRAMS += test-count-leading-zeros
+EXTRA_DIST += test-count-leading-zeros.c macros.h
+
+## end   gnulib module count-leading-zeros-tests
+
 ## begin gnulib module count-one-bits-tests
 
 GNULIB_TESTS += test-count-one-bits
@@ -229,6 +236,41 @@ test_md5_LDADD = $(LDADD) @LIB_CRYPTO@
 EXTRA_DIST += test-md5.c
 
 ## end   gnulib module crypto/md5-tests
+
+## begin gnulib module ctype
+
+BUILT_SOURCES += ctype.h
+
+# We need the following in order to create <ctype.h> when the system
+# doesn't have one that works with the given compiler.
+ctype.h: ctype.in.h $(top_builddir)/config.status $(CXXDEFS_H) $(WARN_ON_USE_H)
+	$(AM_V_GEN)rm -f $@-t $@ && \
+	{ echo '/* DO NOT EDIT! GENERATED AUTOMATICALLY! */'; \
+	  sed -e 's|@''GUARD_PREFIX''@|GL|g' \
+	      -e 's|@''INCLUDE_NEXT''@|$(INCLUDE_NEXT)|g' \
+	      -e 's|@''PRAGMA_SYSTEM_HEADER''@|@PRAGMA_SYSTEM_HEADER@|g' \
+	      -e 's|@''PRAGMA_COLUMNS''@|@PRAGMA_COLUMNS@|g' \
+	      -e 's|@''NEXT_CTYPE_H''@|$(NEXT_CTYPE_H)|g' \
+	      -e 's/@''GNULIB_ISBLANK''@/$(GNULIB_ISBLANK)/g' \
+	      -e 's/@''HAVE_ISBLANK''@/$(HAVE_ISBLANK)/g' \
+	      -e '/definitions of _GL_FUNCDECL_RPL/r $(CXXDEFS_H)' \
+	      -e '/definition of _GL_WARN_ON_USE/r $(WARN_ON_USE_H)' \
+	      < $(srcdir)/ctype.in.h; \
+	} > $@-t && \
+	mv $@-t $@
+MOSTLYCLEANFILES += ctype.h ctype.h-t
+
+EXTRA_DIST += ctype.in.h
+
+## end   gnulib module ctype
+
+## begin gnulib module ctype-tests
+
+GNULIB_TESTS += test-ctype
+check_PROGRAMS += test-ctype
+EXTRA_DIST += test-ctype.c
+
+## end   gnulib module ctype-tests
 
 ## begin gnulib module dup
 
@@ -884,14 +926,6 @@ check_PROGRAMS += test-lstat
 EXTRA_DIST += test-lstat.h test-lstat.c signature.h macros.h
 
 ## end   gnulib module lstat-tests
-
-## begin gnulib module malloc-gnu-tests
-
-GNULIB_TESTS += test-malloc-gnu
-check_PROGRAMS += test-malloc-gnu
-EXTRA_DIST += test-malloc-gnu.c
-
-## end   gnulib module malloc-gnu-tests
 
 ## begin gnulib module malloca-tests
 

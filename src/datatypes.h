@@ -1,7 +1,7 @@
 /*
  * datatypes.h: management of structs for public data types
  *
- * Copyright (C) 2006-2014 Red Hat, Inc.
+ * Copyright (C) 2006-2015 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -27,6 +27,7 @@
 # include "driver.h"
 # include "virthread.h"
 # include "virobject.h"
+# include "viruuid.h"
 
 extern virClassPtr virConnectClass;
 extern virClassPtr virDomainClass;
@@ -39,6 +40,8 @@ extern virClassPtr virSecretClass;
 extern virClassPtr virStreamClass;
 extern virClassPtr virStorageVolClass;
 extern virClassPtr virStoragePoolClass;
+
+extern virClassPtr virAdmConnectClass;
 
 # define virCheckConnectReturn(obj, retval)                             \
     do {                                                                \
@@ -294,6 +297,26 @@ extern virClassPtr virStoragePoolClass;
                   dom, NULLSTR(_domname), _uuidstr, __VA_ARGS__);       \
     } while (0)
 
+# define virCheckAdmConnectReturn(obj, retval)                          \
+    do {                                                                \
+        if (!virObjectIsClass(obj, virAdmConnectClass)) {               \
+            virReportErrorHelper(VIR_FROM_THIS, VIR_ERR_INVALID_CONN,   \
+                                 __FILE__, __FUNCTION__, __LINE__,      \
+                                 __FUNCTION__);                         \
+            virDispatchError(NULL);                                     \
+            return retval;                                              \
+        }                                                               \
+    } while (0)
+# define virCheckAdmConnectGoto(obj, label)                             \
+    do {                                                                \
+        if (!virObjectIsClass(obj, virAdmConnectClass)) {               \
+            virReportErrorHelper(VIR_FROM_THIS, VIR_ERR_INVALID_CONN,   \
+                                 __FILE__, __FUNCTION__, __LINE__,      \
+                                 __FUNCTION__);                         \
+            goto label;                                                 \
+        }                                                               \
+    } while (0)
+
 /**
  * VIR_DOMAIN_DEBUG:
  * @dom: domain
@@ -308,9 +331,11 @@ extern virClassPtr virStoragePoolClass;
 
 typedef struct _virConnectCloseCallbackData virConnectCloseCallbackData;
 typedef virConnectCloseCallbackData *virConnectCloseCallbackDataPtr;
+typedef struct _virAdmConnectCloseCallbackData virAdmConnectCloseCallbackData;
+typedef virAdmConnectCloseCallbackData *virAdmConnectCloseCallbackDataPtr;
 
 /**
- * Internal structure holding data related to connection close callbacks.
+ * Internal structures holding data related to connection close callbacks.
  */
 struct _virConnectCloseCallbackData {
     virObjectLockable parent;
@@ -321,26 +346,37 @@ struct _virConnectCloseCallbackData {
     virFreeCallback freeCallback;
 };
 
+struct _virAdmConnectCloseCallbackData {
+    virObjectLockable parent;
+
+    virAdmConnectPtr conn;
+    virAdmConnectCloseFunc callback;
+    void *opaque;
+    virFreeCallback freeCallback;
+};
+
 /**
  * _virConnect:
  *
  * Internal structure associated to a connection
  */
 struct _virConnect {
-    virObject object;
-    /* All the variables from here, until the 'lock' declaration
-     * are setup at time of connection open, and never changed
-     * since. Thus no need to lock when accessing them
+    virObjectLockable object;
+
+    /* All the variables from here, until declared otherwise in one of
+     * the following comments, are setup at time of connection open
+     * and never changed since. Thus no need to lock when accessing
+     * them.
      */
     unsigned int flags;     /* a set of connection flags */
     virURIPtr uri;          /* connection URI */
 
     /* The underlying hypervisor driver and network driver. */
-    virDriverPtr      driver;
+    virHypervisorDriverPtr driver;
     virNetworkDriverPtr networkDriver;
     virInterfaceDriverPtr interfaceDriver;
     virStorageDriverPtr storageDriver;
-    virNodeDeviceDriverPtr  nodeDeviceDriver;
+    virNodeDeviceDriverPtr nodeDeviceDriver;
     virSecretDriverPtr secretDriver;
     virNWFilterDriverPtr nwfilterDriver;
 
@@ -349,29 +385,38 @@ struct _virConnect {
      * NB: 'private' is a reserved word in C++.
      */
     void *            privateData;
-    void *            networkPrivateData;
-    void *            interfacePrivateData;
-    void *            storagePrivateData;
-    void *            nodeDevicePrivateData;
-    void *            secretPrivateData;
-    void *            nwfilterPrivateData;
 
     /*
-     * The lock mutex must be acquired before accessing/changing
-     * any of members following this point, or changing the ref
-     * count of any virDomain/virNetwork object associated with
-     * this connection
+     * Object lock must be acquired before accessing/changing any of
+     * members following this point, or changing the ref count of any
+     * virDomain/virNetwork object associated with this connection.
      */
-    virMutex lock;
 
     /* Per-connection error. */
     virError err;           /* the last error */
-    virErrorFunc handler;   /* associated handlet */
+    virErrorFunc handler;   /* associated handler */
     void *userData;         /* the user data */
 
     /* Per-connection close callback */
     virConnectCloseCallbackDataPtr closeCallback;
 };
+
+/**
+ * _virAdmConnect:
+ *
+ * Internal structure associated to an admin connection
+ */
+struct _virAdmConnect {
+    virObjectLockable object;
+    virURIPtr uri;
+
+    void *privateData;
+    virFreeCallback privateDataFreeFunc;
+
+    /* Per-connection close callback */
+    virAdmConnectCloseCallbackDataPtr closeCallback;
+};
+
 
 /**
 * _virDomain:
@@ -469,7 +514,7 @@ struct _virNodeDevice {
 struct _virSecret {
     virObject object;
     virConnectPtr conn;                  /* pointer back to the connection */
-    unsigned char uuid[VIR_UUID_BUFLEN]; /* the domain unique identifier */
+    unsigned char uuid[VIR_UUID_BUFLEN]; /* the secret unique identifier */
     int usageType;                       /* the type of usage */
     char *usageID;                       /* the usage's unique identifier */
 };
@@ -553,5 +598,7 @@ virNWFilterPtr virGetNWFilter(virConnectPtr conn,
                               const unsigned char *uuid);
 virDomainSnapshotPtr virGetDomainSnapshot(virDomainPtr domain,
                                           const char *name);
+
+virAdmConnectPtr virAdmConnectNew(void);
 
 #endif /* __VIR_DATATYPES_H__ */

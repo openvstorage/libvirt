@@ -1,7 +1,7 @@
 /*
  * eventtest.c: Test the libvirtd event loop impl
  *
- * Copyright (C) 2009, 2011-2013 Red Hat, Inc.
+ * Copyright (C) 2009, 2011-2014 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -34,6 +34,8 @@
 #include "virutil.h"
 #include "vireventpoll.h"
 
+VIR_LOG_INIT("tests.eventtest");
+
 #define NUM_FDS 31
 #define NUM_TIME 31
 
@@ -60,6 +62,41 @@ enum {
     EV_ERROR_EVENT,
     EV_ERROR_DATA,
 };
+
+struct testEventResultData {
+    bool failed;
+    const char *msg;
+};
+
+static int
+testEventResultCallback(const void *opaque)
+{
+    const struct testEventResultData *data = opaque;
+
+    if (data->failed && data->msg)
+        fprintf(stderr, "%s", data->msg);
+    return data->failed;
+}
+
+static void
+ATTRIBUTE_FMT_PRINTF(3, 4)
+testEventReport(const char *name, bool failed, const char *msg, ...)
+{
+    va_list vargs;
+    va_start(vargs, msg);
+    char *str = NULL;
+    struct testEventResultData data;
+
+    if (msg && virVasprintfQuiet(&str, msg, vargs) != 0)
+        failed = true;
+
+    data.failed = failed;
+    data.msg = str;
+    ignore_value(virtTestRun(name, testEventResultCallback, &data));
+
+    va_end(vargs);
+    VIR_FREE(str);
+}
 
 static void
 testPipeReader(int watch, int fd, int events, void *data)
@@ -114,17 +151,16 @@ testTimer(int timer, void *data)
 
 static pthread_mutex_t eventThreadMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t eventThreadRunCond = PTHREAD_COND_INITIALIZER;
-static int eventThreadRunOnce = 0;
+static int eventThreadRunOnce;
 static pthread_cond_t eventThreadJobCond = PTHREAD_COND_INITIALIZER;
-static int eventThreadJobDone = 0;
+static int eventThreadJobDone;
 
 
 ATTRIBUTE_NORETURN static void *eventThreadLoop(void *data ATTRIBUTE_UNUSED) {
     while (1) {
         pthread_mutex_lock(&eventThreadMutex);
-        while (!eventThreadRunOnce) {
+        while (!eventThreadRunOnce)
             pthread_cond_wait(&eventThreadRunCond, &eventThreadMutex);
-        }
         eventThreadRunOnce = 0;
         pthread_mutex_unlock(&eventThreadMutex);
 
@@ -147,13 +183,13 @@ verifyFired(const char *name, int handle, int timer)
     for (i = 0; i < NUM_FDS; i++) {
         if (handles[i].fired) {
             if (i != handle) {
-                virtTestResult(name, 1,
+                testEventReport(name, 1,
                                "Handle %zu fired, but expected %d\n", i,
                                handle);
                 return EXIT_FAILURE;
             } else {
                 if (handles[i].error != EV_ERROR_NONE) {
-                    virtTestResult(name, 1,
+                    testEventReport(name, 1,
                                    "Handle %zu fired, but had error %d\n", i,
                                    handles[i].error);
                     return EXIT_FAILURE;
@@ -162,7 +198,7 @@ verifyFired(const char *name, int handle, int timer)
             }
         } else {
             if (i == handle) {
-                virtTestResult(name, 1,
+                testEventReport(name, 1,
                                "Handle %d should have fired, but didn't\n",
                                handle);
                 return EXIT_FAILURE;
@@ -170,7 +206,7 @@ verifyFired(const char *name, int handle, int timer)
         }
     }
     if (handleFired != 1 && handle != -1) {
-        virtTestResult(name, 1,
+        testEventReport(name, 1,
                        "Something weird happened, expecting handle %d\n",
                        handle);
         return EXIT_FAILURE;
@@ -180,12 +216,12 @@ verifyFired(const char *name, int handle, int timer)
     for (i = 0; i < NUM_TIME; i++) {
         if (timers[i].fired) {
             if (i != timer) {
-                virtTestResult(name, 1,
+                testEventReport(name, 1,
                                "Timer %zu fired, but expected %d\n", i, timer);
                 return EXIT_FAILURE;
             } else {
                 if (timers[i].error != EV_ERROR_NONE) {
-                    virtTestResult(name, 1,
+                    testEventReport(name, 1,
                                    "Timer %zu fired, but had error %d\n", i,
                                    timers[i].error);
                     return EXIT_FAILURE;
@@ -194,7 +230,7 @@ verifyFired(const char *name, int handle, int timer)
             }
         } else {
             if (i == timer) {
-                virtTestResult(name, 1,
+                testEventReport(name, 1,
                                "Timer %d should have fired, but didn't\n",
                                timer);
                 return EXIT_FAILURE;
@@ -202,7 +238,7 @@ verifyFired(const char *name, int handle, int timer)
         }
     }
     if (timerFired != 1 && timer != -1) {
-        virtTestResult(name, 1,
+        testEventReport(name, 1,
                        "Something weird happened, expecting timer %d\n",
                        timer);
         return EXIT_FAILURE;
@@ -233,14 +269,14 @@ finishJob(const char *name, int handle, int timer)
         rc = pthread_cond_timedwait(&eventThreadJobCond, &eventThreadMutex,
                                     &waitTime);
     if (rc != 0) {
-        virtTestResult(name, 1, "Timed out waiting for pipe event\n");
+        testEventReport(name, 1, "Timed out waiting for pipe event\n");
         return EXIT_FAILURE;
     }
 
     if (verifyFired(name, handle, timer) != EXIT_SUCCESS)
         return EXIT_FAILURE;
 
-    virtTestResult(name, 0, NULL);
+    testEventReport(name, 0, NULL);
     return EXIT_SUCCESS;
 }
 

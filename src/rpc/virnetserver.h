@@ -1,7 +1,7 @@
 /*
  * virnetserver.h: generic network RPC server
  *
- * Copyright (C) 2006-2011 Red Hat, Inc.
+ * Copyright (C) 2006-2015 Red Hat, Inc.
  * Copyright (C) 2006 Daniel P. Berrange
  *
  * This library is free software; you can redistribute it and/or
@@ -24,8 +24,6 @@
 #ifndef __VIR_NET_SERVER_H__
 # define __VIR_NET_SERVER_H__
 
-# include <signal.h>
-
 # ifdef WITH_GNUTLS
 #  include "virnettlscontext.h"
 # endif
@@ -35,13 +33,14 @@
 # include "virobject.h"
 # include "virjson.h"
 
+
 virNetServerPtr virNetServerNew(size_t min_workers,
                                 size_t max_workers,
                                 size_t priority_workers,
                                 size_t max_clients,
+                                size_t max_anonymous_clients,
                                 int keepaliveInterval,
                                 unsigned int keepaliveCount,
-                                bool keepaliveRequired,
                                 const char *mdnsGroupName,
                                 virNetServerClientPrivNew clientPrivNew,
                                 virNetServerClientPrivPreExecRestart clientPrivPreExecRestart,
@@ -55,28 +54,16 @@ virNetServerPtr virNetServerNewPostExecRestart(virJSONValuePtr object,
                                                virFreeCallback clientPrivFree,
                                                void *clientPrivOpaque);
 
+void virNetServerClose(virNetServerPtr srv);
+
 virJSONValuePtr virNetServerPreExecRestart(virNetServerPtr srv);
-
-typedef int (*virNetServerAutoShutdownFunc)(virNetServerPtr srv, void *opaque);
-
-bool virNetServerIsPrivileged(virNetServerPtr srv);
-
-void virNetServerAutoShutdown(virNetServerPtr srv,
-                              unsigned int timeout);
-
-void virNetServerAddShutdownInhibition(virNetServerPtr srv);
-void virNetServerRemoveShutdownInhibition(virNetServerPtr srv);
-
-typedef void (*virNetServerSignalFunc)(virNetServerPtr srv, siginfo_t *info, void *opaque);
-
-int virNetServerAddSignalHandler(virNetServerPtr srv,
-                                 int signum,
-                                 virNetServerSignalFunc func,
-                                 void *opaque);
 
 int virNetServerAddService(virNetServerPtr srv,
                            virNetServerServicePtr svc,
                            const char *mdnsEntryName);
+
+int virNetServerAddClient(virNetServerPtr srv,
+                          virNetServerClientPtr client);
 
 int virNetServerAddProgram(virNetServerPtr srv,
                            virNetServerProgramPtr prog);
@@ -86,15 +73,16 @@ int virNetServerSetTLSContext(virNetServerPtr srv,
                               virNetTLSContextPtr tls);
 # endif
 
-void virNetServerUpdateServices(virNetServerPtr srv,
-                                bool enabled);
+size_t virNetServerTrackPendingAuth(virNetServerPtr srv);
+size_t virNetServerTrackCompletedAuth(virNetServerPtr srv);
 
-void virNetServerRun(virNetServerPtr srv);
+int virNetServerAddClient(virNetServerPtr srv,
+                          virNetServerClientPtr client);
+bool virNetServerHasClients(virNetServerPtr srv);
+void virNetServerProcessClients(virNetServerPtr srv);
 
-void virNetServerQuit(virNetServerPtr srv);
+void virNetServerUpdateServices(virNetServerPtr srv, bool enabled);
 
-void virNetServerClose(virNetServerPtr srv);
+int virNetServerStart(virNetServerPtr srv);
 
-bool virNetServerKeepAliveRequired(virNetServerPtr srv);
-
-#endif
+#endif /* __VIR_NET_SERVER_H__ */

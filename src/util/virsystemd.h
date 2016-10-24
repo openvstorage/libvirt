@@ -25,8 +25,7 @@
 # include "internal.h"
 
 char *virSystemdMakeScopeName(const char *name,
-                              const char *drivername,
-                              const char *slicename);
+                              const char *drivername);
 char *virSystemdMakeSliceName(const char *partition);
 
 char *virSystemdMakeMachineName(const char *name,
@@ -40,6 +39,8 @@ int virSystemdCreateMachine(const char *name,
                             const char *rootdir,
                             pid_t pidleader,
                             bool iscontainer,
+                            size_t nnicindexes,
+                            int *nicindexes,
                             const char *partition);
 
 int virSystemdTerminateMachine(const char *name,
@@ -47,5 +48,11 @@ int virSystemdTerminateMachine(const char *name,
                                bool privileged);
 
 void virSystemdNotifyStartup(void);
+
+int virSystemdCanSuspend(bool *result);
+
+int virSystemdCanHibernate(bool *result);
+
+int virSystemdCanHybridSleep(bool *result);
 
 #endif /* __VIR_SYSTEMD_H__ */

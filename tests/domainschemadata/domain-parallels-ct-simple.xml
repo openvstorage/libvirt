@@ -1,4 +1,4 @@
-<domain type='parallels'>
+<domain type='vz'>
   <name>1010</name>
   <uuid>88576506-d611-41c2-b6b6-c9043704a0dd</uuid>
   <description></description>
@@ -17,6 +17,11 @@
     <filesystem type='template'>
         <source name='centos-6-x86_64'/>
         <target dir='/'/>
+    </filesystem>
+    <filesystem type='file' accessmode='passthrough'>
+      <driver type='ploop' format='ploop'/>
+      <source file='/path/to/ploop/dir'/>
+      <target dir='/mnt'/>
     </filesystem>
     <video>
       <model type='vga' vram='16777216' heads='1'>

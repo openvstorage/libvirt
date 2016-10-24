@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 Red Hat, Inc.
+ * Copyright (C) 2012, 2014 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -32,6 +32,8 @@
 
 #define VIR_FROM_THIS VIR_FROM_RPC
 
+VIR_LOG_INIT("tests.uritest");
+
 struct URIParseData {
     const char *uri;
     const char *uri_out;
@@ -56,13 +58,13 @@ static int testURIParse(const void *args)
     if (!(uri = virURIParse(data->uri)))
         goto cleanup;
 
-    if (!STREQ(uri->scheme, data->scheme)) {
+    if (STRNEQ(uri->scheme, data->scheme)) {
         VIR_DEBUG("Expected scheme '%s', actual '%s'",
                   data->scheme, uri->scheme);
         goto cleanup;
     }
 
-    if (!STREQ(uri->server, data->server)) {
+    if (STRNEQ(uri->server, data->server)) {
         VIR_DEBUG("Expected server '%s', actual '%s'",
                   data->server, uri->server);
         goto cleanup;
@@ -74,31 +76,31 @@ static int testURIParse(const void *args)
         goto cleanup;
     }
 
-    if (!STREQ_NULLABLE(uri->path, data->path)) {
+    if (STRNEQ_NULLABLE(uri->path, data->path)) {
         VIR_DEBUG("Expected path '%s', actual '%s'",
                   data->path, uri->path);
         goto cleanup;
     }
 
-    if (!STREQ_NULLABLE(uri->query, data->query)) {
+    if (STRNEQ_NULLABLE(uri->query, data->query)) {
         VIR_DEBUG("Expected query '%s', actual '%s'",
                   data->query, uri->query);
         goto cleanup;
     }
 
-    if (!STREQ_NULLABLE(uri->fragment, data->fragment)) {
+    if (STRNEQ_NULLABLE(uri->fragment, data->fragment)) {
         VIR_DEBUG("Expected fragment '%s', actual '%s'",
                   data->fragment, uri->fragment);
         goto cleanup;
     }
 
     for (i = 0; data->params && data->params[i].name && i < uri->paramsCount; i++) {
-        if (!STREQ_NULLABLE(data->params[i].name, uri->params[i].name)) {
+        if (STRNEQ_NULLABLE(data->params[i].name, uri->params[i].name)) {
             VIR_DEBUG("Expected param name %zu '%s', actual '%s'",
                       i, data->params[i].name, uri->params[i].name);
             goto cleanup;
         }
-        if (!STREQ_NULLABLE(data->params[i].value, uri->params[i].value)) {
+        if (STRNEQ_NULLABLE(data->params[i].value, uri->params[i].value)) {
             VIR_DEBUG("Expected param value %zu '%s', actual '%s'",
                       i, data->params[i].value, uri->params[i].value);
             goto cleanup;
@@ -121,14 +123,14 @@ static int testURIParse(const void *args)
     if (!(uristr = virURIFormat(uri)))
         goto cleanup;
 
-    if (!STREQ(uristr, data->uri_out)) {
+    if (STRNEQ(uristr, data->uri_out)) {
         VIR_DEBUG("URI did not roundtrip, expect '%s', actual '%s'",
                   data->uri_out, uristr);
         goto cleanup;
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     VIR_FREE(uristr);
     virURIFree(uri);
     return ret;
@@ -171,6 +173,7 @@ mymain(void)
     TEST_PARSE("test://127.0.0.1:123/system", "test", "127.0.0.1", 123, "/system", NULL, NULL, NULL, NULL);
     TEST_PARSE("test://[::1]:123/system", "test", "::1", 123, "/system", NULL, NULL, NULL, NULL);
     TEST_PARSE("test://[2001:41c8:1:4fd4::2]:123/system", "test", "2001:41c8:1:4fd4::2", 123, "/system", NULL, NULL, NULL, NULL);
+    TEST_PARSE("gluster+rdma://example.com:1234/gv0/vol.img", "gluster+rdma", "example.com", 1234, "/gv0/vol.img", NULL, NULL, NULL, NULL);
 
     virURIParam params1[] = {
         { (char*)"foo", (char*)"one", false },
@@ -220,7 +223,7 @@ mymain(void)
 #endif
     TEST_PARAMS("=bogus&foo=one", "foo=one", params6);
 
-    return ret==0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 VIRT_TEST_MAIN(mymain)

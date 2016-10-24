@@ -49,6 +49,8 @@
 
 #define VIR_FROM_THIS VIR_FROM_RPC
 
+VIR_LOG_INIT("rpc.netservermdns");
+
 struct _virNetServerMDNSEntry {
     char *type;
     int port;
@@ -615,14 +617,14 @@ static const char *unsupported = N_("avahi not available at build time");
 virNetServerMDNS *
 virNetServerMDNSNew(void)
 {
-    VIR_DEBUG("%s", _(unsupported));
+    virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _(unsupported));
     return NULL;
 }
 
 int
 virNetServerMDNSStart(virNetServerMDNS *mdns ATTRIBUTE_UNUSED)
 {
-    VIR_DEBUG("%s", _(unsupported));
+    virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _(unsupported));
     return -1;
 }
 
@@ -630,7 +632,7 @@ virNetServerMDNSGroupPtr
 virNetServerMDNSAddGroup(virNetServerMDNS *mdns ATTRIBUTE_UNUSED,
                          const char *name ATTRIBUTE_UNUSED)
 {
-    VIR_DEBUG("%s", _(unsupported));
+    virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _(unsupported));
     return NULL;
 }
 
@@ -646,7 +648,7 @@ virNetServerMDNSAddEntry(virNetServerMDNSGroupPtr group ATTRIBUTE_UNUSED,
                          const char *type ATTRIBUTE_UNUSED,
                          int port ATTRIBUTE_UNUSED)
 {
-    VIR_DEBUG("%s", _(unsupported));
+    virReportError(VIR_ERR_INTERNAL_ERROR, "%s", _(unsupported));
     return NULL;
 }
 

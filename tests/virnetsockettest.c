@@ -39,6 +39,8 @@
 
 #define VIR_FROM_THIS VIR_FROM_RPC
 
+VIR_LOG_INIT("tests.netsockettest");
+
 #if HAVE_IFADDRS_H
 # define BASE_PORT 5672
 
@@ -46,47 +48,15 @@ static int
 checkProtocols(bool *hasIPv4, bool *hasIPv6,
                int *freePort)
 {
-    struct ifaddrs *ifaddr = NULL, *ifa;
-    struct addrinfo hints;
-    struct addrinfo *ai = NULL;
     struct sockaddr_in in4;
     struct sockaddr_in6 in6;
     int s4 = -1, s6 = -1;
     size_t i;
     int ret = -1;
 
-    memset(&hints, 0, sizeof(hints));
-
-    *hasIPv4 = *hasIPv6 = false;
     *freePort = 0;
-
-    if (getifaddrs(&ifaddr) < 0) {
-        perror("getifaddrs");
-        goto cleanup;
-    }
-
-    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
-        if (!ifa->ifa_addr)
-            continue;
-
-        if (ifa->ifa_addr->sa_family == AF_INET)
-            *hasIPv4 = true;
-        if (ifa->ifa_addr->sa_family == AF_INET6)
-            *hasIPv6 = true;
-    }
-
-    hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
-    hints.ai_family = AF_INET6;
-    hints.ai_socktype = SOCK_STREAM;
-
-    if (getaddrinfo("::1", "5672", &hints, &ai) != 0)
-        *hasIPv6 = false;
-
-    freeaddrinfo(ai);
-
-    VIR_DEBUG("Protocols: v4 %d v6 %d\n", *hasIPv4, *hasIPv6);
-
-    freeifaddrs(ifaddr);
+    if (virNetSocketCheckProtocols(hasIPv4, hasIPv6) < 0)
+        return -1;
 
     for (i = 0; i < 50; i++) {
         int only = 1;
@@ -135,11 +105,11 @@ checkProtocols(bool *hasIPv4, bool *hasIPv6,
         break;
     }
 
-    VIR_DEBUG("Choose port %d\n", *freePort);
+    VIR_DEBUG("Choose port %d", *freePort);
 
     ret = 0;
 
-cleanup:
+ cleanup:
     VIR_FORCE_CLOSE(s4);
     VIR_FORCE_CLOSE(s6);
     return ret;
@@ -164,7 +134,9 @@ static int testSocketTCPAccept(const void *opaque)
 
     snprintf(portstr, sizeof(portstr), "%d", data->port);
 
-    if (virNetSocketNewListenTCP(data->lnode, portstr, &lsock, &nlsock) < 0)
+    if (virNetSocketNewListenTCP(data->lnode, portstr,
+                                 AF_UNSPEC,
+                                 &lsock, &nlsock) < 0)
         goto cleanup;
 
     for (i = 0; i < nlsock; i++) {
@@ -172,7 +144,9 @@ static int testSocketTCPAccept(const void *opaque)
             goto cleanup;
     }
 
-    if (virNetSocketNewConnectTCP(data->cnode, portstr, &csock) < 0)
+    if (virNetSocketNewConnectTCP(data->cnode, portstr,
+                                  AF_UNSPEC,
+                                  &csock) < 0)
         goto cleanup;
 
     virObjectUnref(csock);
@@ -192,7 +166,7 @@ static int testSocketTCPAccept(const void *opaque)
 
     ret = 0;
 
-cleanup:
+ cleanup:
     virObjectUnref(ssock);
     for (i = 0; i < nlsock; i++)
         virObjectUnref(lsock[i]);
@@ -243,7 +217,7 @@ static int testSocketUNIXAccept(const void *data ATTRIBUTE_UNUSED)
 
     ret = 0;
 
-cleanup:
+ cleanup:
     VIR_FREE(path);
     virObjectUnref(lsock);
     virObjectUnref(ssock);
@@ -321,7 +295,7 @@ static int testSocketUNIXAddrs(const void *data ATTRIBUTE_UNUSED)
 
     ret = 0;
 
-cleanup:
+ cleanup:
     VIR_FREE(path);
     virObjectUnref(lsock);
     virObjectUnref(ssock);
@@ -354,7 +328,7 @@ static int testSocketCommandNormal(const void *data ATTRIBUTE_UNUSED)
 
     ret = 0;
 
-cleanup:
+ cleanup:
     virObjectUnref(csock);
     return ret;
 }
@@ -377,7 +351,7 @@ static int testSocketCommandFail(const void *data ATTRIBUTE_UNUSED)
 
     ret = 0;
 
-cleanup:
+ cleanup:
     virObjectUnref(csock);
     return ret;
 }
@@ -432,7 +406,7 @@ static int testSocketSSH(const void *opaque)
         }
         buf[rv] = '\0';
 
-        if (!STREQ(buf, data->expectOut)) {
+        if (STRNEQ(buf, data->expectOut)) {
             virtTestDifference(stderr, data->expectOut, buf);
             goto cleanup;
         }
@@ -446,7 +420,7 @@ static int testSocketSSH(const void *opaque)
 
     ret = 0;
 
-cleanup:
+ cleanup:
     virObjectUnref(csock);
     return ret;
 }
@@ -499,12 +473,10 @@ mymain(void)
     if (virtTestRun("Socket UNIX Addrs", testSocketUNIXAddrs, NULL) < 0)
         ret = -1;
 
-#if 0
     if (virtTestRun("Socket External Command /dev/zero", testSocketCommandNormal, NULL) < 0)
         ret = -1;
     if (virtTestRun("Socket External Command /dev/does-not-exist", testSocketCommandFail, NULL) < 0)
         ret = -1;
-#endif
 
     struct testSSHData sshData1 = {
         .nodename = "somehost",
@@ -612,7 +584,7 @@ mymain(void)
 
 #endif
 
-    return ret==0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 VIRT_TEST_MAIN(mymain)

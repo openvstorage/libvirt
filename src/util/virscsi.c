@@ -36,7 +36,6 @@
 #include <unistd.h>
 
 #include "virscsi.h"
-#include "virlog.h"
 #include "viralloc.h"
 #include "virfile.h"
 #include "virutil.h"
@@ -47,17 +46,22 @@
 
 /* For virReportOOMError()  and virReportSystemError() */
 #define VIR_FROM_THIS VIR_FROM_NONE
+struct _virUsedByInfo {
+    char *drvname; /* which driver */
+    char *domname; /* which domain */
+};
+typedef struct _virUsedByInfo *virUsedByInfoPtr;
 
 struct _virSCSIDevice {
     unsigned int adapter;
     unsigned int bus;
     unsigned int target;
-    unsigned int unit;
+    unsigned long long unit;
 
     char *name; /* adapter:bus:target:unit */
     char *id;   /* model:vendor */
     char *sg_path; /* e.g. /dev/sg2 */
-    char **used_by; /* name of the domains using this dev */
+    virUsedByInfoPtr *used_by; /* driver:domain(s) using this dev */
     size_t n_used_by; /* how many domains are using this dev */
 
     bool readonly;
@@ -106,7 +110,7 @@ virSCSIDeviceGetSgName(const char *sysfs_prefix,
                        const char *adapter,
                        unsigned int bus,
                        unsigned int target,
-                       unsigned int unit)
+                       unsigned long long unit)
 {
     DIR *dir = NULL;
     struct dirent *entry;
@@ -119,7 +123,7 @@ virSCSIDeviceGetSgName(const char *sysfs_prefix,
         return NULL;
 
     if (virAsprintf(&path,
-                    "%s/%d:%d:%d:%d/scsi_generic",
+                    "%s/%d:%u:%u:%llu/scsi_generic",
                     prefix, adapter_id, bus, target, unit) < 0)
         return NULL;
 
@@ -129,16 +133,18 @@ virSCSIDeviceGetSgName(const char *sysfs_prefix,
         goto cleanup;
     }
 
-    while ((entry = readdir(dir))) {
+    while (virDirRead(dir, &entry, path) > 0) {
         if (entry->d_name[0] == '.')
             continue;
 
-        if (VIR_STRDUP(sg, entry->d_name) < 0)
-            goto cleanup;
+        /* Assume a single directory entry */
+        ignore_value(VIR_STRDUP(sg, entry->d_name));
+        break;
     }
 
-cleanup:
-    closedir(dir);
+ cleanup:
+    if (dir)
+        closedir(dir);
     VIR_FREE(path);
     return sg;
 }
@@ -151,7 +157,7 @@ virSCSIDeviceGetDevName(const char *sysfs_prefix,
                         const char *adapter,
                         unsigned int bus,
                         unsigned int target,
-                        unsigned int unit)
+                        unsigned long long unit)
 {
     DIR *dir = NULL;
     struct dirent *entry;
@@ -164,7 +170,7 @@ virSCSIDeviceGetDevName(const char *sysfs_prefix,
         return NULL;
 
     if (virAsprintf(&path,
-                    "%s/%d:%d:%d:%d/block",
+                    "%s/%d:%u:%u:%llu/block",
                     prefix, adapter_id, bus, target, unit) < 0)
         return NULL;
 
@@ -174,7 +180,7 @@ virSCSIDeviceGetDevName(const char *sysfs_prefix,
         goto cleanup;
     }
 
-    while ((entry = readdir(dir))) {
+    while (virDirRead(dir, &entry, path) > 0) {
         if (entry->d_name[0] == '.')
             continue;
 
@@ -182,8 +188,9 @@ virSCSIDeviceGetDevName(const char *sysfs_prefix,
         break;
     }
 
-cleanup:
-    closedir(dir);
+ cleanup:
+    if (dir)
+        closedir(dir);
     VIR_FREE(path);
     return name;
 }
@@ -193,7 +200,7 @@ virSCSIDeviceNew(const char *sysfs_prefix,
                  const char *adapter,
                  unsigned int bus,
                  unsigned int target,
-                 unsigned int unit,
+                 unsigned long long unit,
                  bool readonly,
                  bool shareable)
 {
@@ -220,7 +227,7 @@ virSCSIDeviceNew(const char *sysfs_prefix,
     if (virSCSIDeviceGetAdapterId(adapter, &dev->adapter) < 0)
         goto cleanup;
 
-    if (virAsprintf(&dev->name, "%d:%d:%d:%d", dev->adapter,
+    if (virAsprintf(&dev->name, "%d:%u:%u:%llu", dev->adapter,
                     dev->bus, dev->target, dev->unit) < 0 ||
         virAsprintf(&dev->sg_path, "%s/%s",
                     sysfs_prefix ? sysfs_prefix : "/dev", sg) < 0)
@@ -252,7 +259,7 @@ virSCSIDeviceNew(const char *sysfs_prefix,
         goto cleanup;
 
     ret = dev;
-cleanup:
+ cleanup:
     VIR_FREE(sg);
     VIR_FREE(vendor);
     VIR_FREE(model);
@@ -261,6 +268,14 @@ cleanup:
     if (!ret)
         virSCSIDeviceFree(dev);
     return ret;
+}
+
+static void
+virSCSIDeviceUsedByInfoFree(virUsedByInfoPtr used_by)
+{
+    VIR_FREE(used_by->drvname);
+    VIR_FREE(used_by->domname);
+    VIR_FREE(used_by);
 }
 
 void
@@ -275,21 +290,31 @@ virSCSIDeviceFree(virSCSIDevicePtr dev)
     VIR_FREE(dev->name);
     VIR_FREE(dev->sg_path);
     for (i = 0; i < dev->n_used_by; i++)
-        VIR_FREE(dev->used_by[i]);
+        virSCSIDeviceUsedByInfoFree(dev->used_by[i]);
     VIR_FREE(dev->used_by);
     VIR_FREE(dev);
 }
 
 int
 virSCSIDeviceSetUsedBy(virSCSIDevicePtr dev,
-                       const char *name)
+                       const char *drvname,
+                       const char *domname)
 {
-    char *copy = NULL;
-
-    if (VIR_STRDUP(copy, name) < 0)
+    virUsedByInfoPtr copy;
+    if (VIR_ALLOC(copy) < 0)
         return -1;
+    if (VIR_STRDUP(copy->drvname, drvname) < 0 ||
+        VIR_STRDUP(copy->domname, domname) < 0)
+        goto cleanup;
 
-    return VIR_APPEND_ELEMENT(dev->used_by, dev->n_used_by, copy);
+    if (VIR_APPEND_ELEMENT(dev->used_by, dev->n_used_by, copy) < 0)
+        goto cleanup;
+
+    return 0;
+
+ cleanup:
+    virSCSIDeviceUsedByInfoFree(copy);
+    return -1;
 }
 
 bool
@@ -322,7 +347,7 @@ virSCSIDeviceGetTarget(virSCSIDevicePtr dev)
     return dev->target;
 }
 
-unsigned int
+unsigned long long
 virSCSIDeviceGetUnit(virSCSIDevicePtr dev)
 {
     return dev->unit;
@@ -427,15 +452,17 @@ virSCSIDeviceListSteal(virSCSIDeviceListPtr list,
 void
 virSCSIDeviceListDel(virSCSIDeviceListPtr list,
                      virSCSIDevicePtr dev,
-                     const char *name)
+                     const char *drvname,
+                     const char *domname)
 {
     virSCSIDevicePtr tmp = NULL;
     size_t i;
 
     for (i = 0; i < dev->n_used_by; i++) {
-        if (STREQ_NULLABLE(dev->used_by[i], name)) {
+        if (STREQ_NULLABLE(dev->used_by[i]->drvname, drvname) &&
+            STREQ_NULLABLE(dev->used_by[i]->domname, domname)) {
             if (dev->n_used_by > 1) {
-                VIR_FREE(dev->used_by[i]);
+                virSCSIDeviceUsedByInfoFree(dev->used_by[i]);
                 VIR_DELETE_ELEMENT(dev->used_by, i, dev->n_used_by);
             } else {
                 tmp = virSCSIDeviceListSteal(list, dev);

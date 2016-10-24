@@ -25,10 +25,8 @@
 #ifndef __VIR_UTIL_H__
 # define __VIR_UTIL_H__
 
-# include "verify.h"
 # include "internal.h"
 # include <unistd.h>
-# include <sys/select.h>
 # include <sys/types.h>
 
 # ifndef MIN
@@ -38,10 +36,12 @@
 #  define MAX(a, b) ((a) > (b) ? (a) : (b))
 # endif
 
+
 int virSetBlocking(int fd, bool blocking) ATTRIBUTE_RETURN_CHECK;
 int virSetNonBlock(int fd) ATTRIBUTE_RETURN_CHECK;
 int virSetInherit(int fd, bool inherit) ATTRIBUTE_RETURN_CHECK;
 int virSetCloseExec(int fd) ATTRIBUTE_RETURN_CHECK;
+int virSetSockReuseAddr(int fd, bool fatal) ATTRIBUTE_RETURN_CHECK;
 
 int virPipeReadUntilEOF(int outfd, int errfd,
                         char **outbuf, char **errbuf);
@@ -67,6 +67,7 @@ int virDoubleToStr(char **strp, double number)
 char *virFormatIntDecimal(char *buf, size_t buflen, int val)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
 
+int virDiskNameParse(const char *name, int *disk, int *partition);
 int virDiskNameToIndex(const char* str);
 char *virIndexToDiskName(int idx, const char *prefix);
 
@@ -98,19 +99,23 @@ const char *virEnumToString(const char *const*types,
 
 /* No-op workarounds for functionality missing in mingw.  */
 # ifndef HAVE_GETUID
-static inline int getuid(void) { return 0; }
+static inline int getuid(void)
+{ return 0; }
 # endif
 
 # ifndef HAVE_GETEUID
-static inline int geteuid(void) { return 0; }
+static inline int geteuid(void)
+{ return 0; }
 # endif
 
 # ifndef HAVE_GETGID
-static inline int getgid(void) { return 0; }
+static inline int getgid(void)
+{ return 0; }
 # endif
 
 # ifndef HAVE_GETEGID
-static inline int getegid(void) { return 0; }
+static inline int getegid(void)
+{ return 0; }
 # endif
 
 # ifdef FUNC_PTHREAD_SIGMASK_BROKEN
@@ -127,6 +132,7 @@ static inline int pthread_sigmask(int how,
 # endif
 
 char *virGetHostname(void);
+char *virGetHostnameQuiet(void);
 
 char *virGetUserDirectory(void);
 char *virGetUserDirectoryByUID(uid_t uid);
@@ -159,6 +165,24 @@ int virGetDeviceUnprivSGIO(const char *path,
                            int *unpriv_sgio);
 char *virGetUnprivSGIOSysfsPath(const char *path,
                                 const char *sysfs_dir);
+int virReadSCSIUniqueId(const char *sysfs_prefix,
+                        int host,
+                        int *result)
+    ATTRIBUTE_NONNULL(3);
+char *
+virFindSCSIHostByPCI(const char *sysfs_prefix,
+                     const char *parentaddr,
+                     unsigned int unique_id);
+int
+virGetSCSIHostNumber(const char *adapter_name,
+                     unsigned int *result)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2);
+char *
+virGetSCSIHostNameByParentaddr(unsigned int domain,
+                               unsigned int bus,
+                               unsigned int slot,
+                               unsigned int function,
+                               unsigned int unique_id);
 int virReadFCHost(const char *sysfs_prefix,
                   int host,
                   const char *entry,
@@ -186,12 +210,54 @@ char *virGetFCHostNameByWWN(const char *sysfs_prefix,
 
 char *virFindFCHostCapableVport(const char *sysfs_prefix);
 
-int virCompareLimitUlong(unsigned long long a, unsigned long long b);
-
 int virParseOwnershipIds(const char *label, uid_t *uidPtr, gid_t *gidPtr);
 
 const char *virGetEnvBlockSUID(const char *name);
 const char *virGetEnvAllowSUID(const char *name);
 bool virIsSUID(void);
+
+
+time_t virGetSelfLastChanged(void);
+void virUpdateSelfLastChanged(const char *path);
+
+typedef enum {
+    VIR_TRISTATE_BOOL_ABSENT = 0,
+    VIR_TRISTATE_BOOL_YES,
+    VIR_TRISTATE_BOOL_NO,
+
+    VIR_TRISTATE_BOOL_LAST
+} virTristateBool;
+
+typedef enum {
+    VIR_TRISTATE_SWITCH_ABSENT = 0,
+    VIR_TRISTATE_SWITCH_ON,
+    VIR_TRISTATE_SWITCH_OFF,
+
+    VIR_TRISTATE_SWITCH_LAST
+} virTristateSwitch;
+
+
+VIR_ENUM_DECL(virTristateBool)
+VIR_ENUM_DECL(virTristateSwitch)
+
+unsigned int virGetListenFDs(void);
+
+long virGetSystemPageSize(void);
+long virGetSystemPageSizeKB(void);
+
+unsigned long long virMemoryLimitTruncate(unsigned long long value);
+bool virMemoryLimitIsSet(unsigned long long value);
+unsigned long long virMemoryMaxValue(bool ulong);
+
+/**
+ * VIR_ASSIGN_IS_OVERFLOW:
+ * @rvalue: value that is checked (evaluated twice)
+ * @lvalue: value that the check is against (used in typeof())
+ *
+ * This macro assigns @lvalue to @rvalue and evaluates as true if the value of
+ * @rvalue did not fit into the @lvalue.
+ */
+# define VIR_ASSIGN_IS_OVERFLOW(lvalue, rvalue)                                \
+    (((lvalue) = (rvalue)) != (rvalue))
 
 #endif /* __VIR_UTIL_H__ */

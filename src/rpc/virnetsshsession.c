@@ -40,6 +40,8 @@
 
 #define VIR_FROM_THIS VIR_FROM_SSH
 
+VIR_LOG_INIT("rpc.netsshsession");
+
 static const char
 vir_libssh2_key_comment[] = "added by libvirt ssh transport";
 #define VIR_NET_SSH_BUFFER_SIZE  1024
@@ -190,7 +192,7 @@ virNetSSHSessionAuthMethodNew(virNetSSHSessionPtr sess)
 
     return auth;
 
-error:
+ error:
     VIR_FREE(auth);
     return NULL;
 }
@@ -265,7 +267,7 @@ virNetSSHKbIntCb(const char *name ATTRIBUTE_UNUSED,
         responses[i].length = askcred[i].resultlen;
     }
 
-cleanup:
+ cleanup:
     if (askcred) {
         for (i = 0; i < num_prompts; i++) {
             char *prompt = (char *)askcred[i].prompt;
@@ -342,16 +344,14 @@ virNetSSHCheckHostKey(virNetSSHSessionPtr sess)
             memset(&askKey, 0, sizeof(virConnectCredential));
 
             for (i = 0; i < sess->cred->ncredtype; i++) {
-                if (sess->cred->credtype[i] == VIR_CRED_ECHOPROMPT) {
-                    i = -1;
+                if (sess->cred->credtype[i] == VIR_CRED_ECHOPROMPT)
                     break;
-                }
             }
 
-            if (i > 0) {
+            if (i == sess->cred->ncredtype) {
                 virReportError(VIR_ERR_SSH, "%s",
-                               _("no suitable method to retrieve "
-                                 "authentication credentials"));
+                               _("no suitable callback for host key "
+                                 "verification"));
                 return -1;
             }
 
@@ -370,10 +370,8 @@ virNetSSHCheckHostKey(virNetSSHSessionPtr sess)
                 virBufferAsprintf(&buff, "%02hhX:", keyhash[i]);
             virBufferTrim(&buff, ":", 1);
 
-            if (virBufferError(&buff) != 0) {
-                virReportOOMError();
+            if (virBufferCheckError(&buff) < 0)
                 return -1;
-            }
 
             keyhashstr = virBufferContentAndReset(&buff);
 
@@ -437,10 +435,8 @@ virNetSSHCheckHostKey(virNetSSHSessionPtr sess)
          * to port number */
         virBufferAsprintf(&buff, "[%s]:%d", sess->hostname, sess->port);
 
-        if (virBufferError(&buff) != 0) {
-            virReportOOMError();
+        if (virBufferCheckError(&buff) < 0)
             return -1;
-        }
 
         hostnameStr = virBufferContentAndReset(&buff);
 
@@ -526,6 +522,8 @@ virNetSSHAuthenticateAgent(virNetSSHSessionPtr sess,
     int ret;
     char *errmsg;
 
+    VIR_DEBUG("sess=%p", sess);
+
     if (libssh2_agent_connect(sess->agent) < 0) {
         virReportError(VIR_ERR_SSH, "%s",
                        _("Failed to connect to ssh agent"));
@@ -596,6 +594,8 @@ virNetSSHAuthenticatePrivkey(virNetSSHSessionPtr sess,
     char *errmsg;
     int ret;
     char *tmp;
+
+    VIR_DEBUG("sess=%p", sess);
 
     /* try open the key with no password */
     if ((ret = libssh2_userauth_publickey_fromfile(sess->session,
@@ -699,6 +699,8 @@ virNetSSHAuthenticatePassword(virNetSSHSessionPtr sess,
     int ret = -1;
     int rc;
 
+    VIR_DEBUG("sess=%p", sess);
+
     if (priv->password) {
         /* tunelled password authentication */
         if ((ret = libssh2_userauth_password(sess->session,
@@ -753,7 +755,7 @@ virNetSSHAuthenticatePassword(virNetSSHSessionPtr sess,
     else
         return -1;
 
-cleanup:
+ cleanup:
     VIR_FREE(password);
     return ret;
 }
@@ -771,6 +773,8 @@ virNetSSHAuthenticateKeyboardInteractive(virNetSSHSessionPtr sess,
 {
     char *errmsg;
     int ret;
+
+    VIR_DEBUG("sess=%p", sess);
 
     if (!sess->cred || !sess->cred->cb) {
         virReportError(VIR_ERR_SSH, "%s",
@@ -838,6 +842,8 @@ virNetSSHAuthenticate(virNetSSHSessionPtr sess)
     char *errmsg;
     size_t i;
     int ret;
+
+    VIR_DEBUG("sess=%p", sess);
 
     if (!sess->nauths) {
         virReportError(VIR_ERR_SSH, "%s",
@@ -1032,7 +1038,7 @@ virNetSSHSessionAuthAddPasswordAuth(virNetSSHSessionPtr sess,
     virObjectUnlock(sess);
     return 0;
 
-error:
+ error:
     VIR_FREE(user);
     virObjectUnlock(sess);
     return -1;
@@ -1066,7 +1072,7 @@ virNetSSHSessionAuthAddAgentAuth(virNetSSHSessionPtr sess,
     virObjectUnlock(sess);
     return 0;
 
-error:
+ error:
     VIR_FREE(user);
     virObjectUnlock(sess);
     return -1;
@@ -1109,7 +1115,7 @@ virNetSSHSessionAuthAddPrivKeyAuth(virNetSSHSessionPtr sess,
     virObjectUnlock(sess);
     return 0;
 
-error:
+ error:
     VIR_FREE(user);
     VIR_FREE(pass);
     VIR_FREE(file);
@@ -1147,7 +1153,7 @@ virNetSSHSessionAuthAddKeyboardAuth(virNetSSHSessionPtr sess,
     virObjectUnlock(sess);
     return 0;
 
-error:
+ error:
     VIR_FREE(user);
     virObjectUnlock(sess);
     return -1;
@@ -1220,7 +1226,7 @@ virNetSSHSessionSetHostKeyVerification(virNetSSHSessionPtr sess,
     virObjectUnlock(sess);
     return 0;
 
-error:
+ error:
     virObjectUnlock(sess);
     return -1;
 }
@@ -1271,7 +1277,7 @@ virNetSSHSessionPtr virNetSSHSessionNew(void)
 
     return sess;
 
-error:
+ error:
     virObjectUnref(sess);
     return NULL;
 }
@@ -1328,7 +1334,7 @@ virNetSSHSessionConnect(virNetSSHSessionPtr sess,
     virObjectUnlock(sess);
     return ret;
 
-error:
+ error:
     sess->state = VIR_NET_SSH_STATE_ERROR;
     virObjectUnlock(sess);
     return ret;
@@ -1437,11 +1443,11 @@ virNetSSHChannelRead(virNetSSHSessionPtr sess,
         return -1;
     }
 
-success:
+ success:
     virObjectUnlock(sess);
     return read_n;
 
-error:
+ error:
     sess->state = VIR_NET_SSH_STATE_ERROR;
     virObjectUnlock(sess);
     return ret;
@@ -1499,7 +1505,7 @@ virNetSSHChannelWrite(virNetSSHSessionPtr sess,
                        _("write failed: %s"), msg);
     }
 
-cleanup:
+ cleanup:
     virObjectUnlock(sess);
     return ret;
 }

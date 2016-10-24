@@ -1,7 +1,7 @@
 /*
- * xm_internal.h: helper routines for dealing with inactive domains
+ * xm_internal.c: helper routines for dealing with inactive domains
  *
- * Copyright (C) 2006-2007, 2009-2013 Red Hat, Inc.
+ * Copyright (C) 2006-2007, 2009-2014 Red Hat, Inc.
  * Copyright (C) 2006 Daniel P. Berrange
  *
  * This library is free software; you can redistribute it and/or
@@ -53,6 +53,8 @@
 
 #define VIR_FROM_THIS VIR_FROM_XENXM
 
+VIR_LOG_INIT("xen.xm_internal");
+
 #ifdef WITH_RHEL5_API
 # define XEND_CONFIG_MAX_VERS_NET_TYPE_IOEMU 0
 # define XEND_CONFIG_MIN_VERS_PVFB_NEWCONF 2
@@ -92,7 +94,8 @@ static int xenInotifyActive(virConnectPtr conn)
 
 
 /* Release memory associated with a cached config object */
-static void xenXMConfigFree(void *payload, const void *key ATTRIBUTE_UNUSED) {
+static void xenXMConfigFree(void *payload, const void *key ATTRIBUTE_UNUSED)
+{
     xenXMConfCachePtr entry = (xenXMConfCachePtr)payload;
     virDomainDefFree(entry->def);
     VIR_FREE(entry->filename);
@@ -118,9 +121,8 @@ xenXMConfigReaper(const void *payload,
     if (entry->refreshedAt != args->now) {
         const char *olddomname = entry->def->name;
         char *nameowner = (char *)virHashLookup(args->priv->nameConfigMap, olddomname);
-        if (nameowner && STREQ(nameowner, key)) {
+        if (nameowner && STREQ(nameowner, key))
             virHashRemoveEntry(args->priv->nameConfigMap, olddomname);
-        }
         return 1;
     }
     return 0;
@@ -137,7 +139,7 @@ xenXMConfigReadFile(virConnectPtr conn, const char *filename)
     if (!(conf = virConfReadFile(filename, 0)))
         return NULL;
 
-    def = xenParseXM(conf, priv->xendConfigVersion, priv->caps);
+    def = xenParseXM(conf, priv->caps, priv->xmlopt);
     virConfFree(conf);
 
     return def;
@@ -149,10 +151,9 @@ xenXMConfigSaveFile(virConnectPtr conn,
                     virDomainDefPtr def)
 {
     virConfPtr conf;
-    xenUnifiedPrivatePtr priv = conn->privateData;
     int ret;
 
-    if (!(conf = xenFormatXM(conn, def, priv->xendConfigVersion)))
+    if (!(conf = xenFormatXM(conn, def)))
         return -1;
 
     ret = virConfWriteFile(filename, conf);
@@ -189,15 +190,14 @@ xenXMConfigCacheRemoveFile(virConnectPtr conn, const char *filename)
  * calling this function
  */
 int
-xenXMConfigCacheAddFile(virConnectPtr conn, const char *filename)
+xenXMConfigCacheAddFile(virConnectPtr conn, const char *filename, time_t now)
 {
     xenUnifiedPrivatePtr priv = conn->privateData;
     xenXMConfCachePtr entry;
     struct stat st;
     int newborn = 0;
-    time_t now = time(NULL);
 
-    VIR_DEBUG("Adding file %s", filename);
+    VIR_DEBUG("Adding file %s %lld", filename, (long long)now);
 
     /* Get modified time */
     if ((stat(filename, &st) < 0)) {
@@ -228,9 +228,8 @@ xenXMConfigCacheAddFile(virConnectPtr conn, const char *filename)
         /* If we currently own the name, then release it and
             re-acquire it later - just in case it was renamed */
         nameowner = (char *)virHashLookup(priv->nameConfigMap, entry->def->name);
-        if (nameowner && STREQ(nameowner, filename)) {
+        if (nameowner && STREQ(nameowner, filename))
             virHashRemoveEntry(priv->nameConfigMap, entry->def->name);
-        }
 
         /* Clear existing config entry which needs refresh */
         virDomainDefFree(entry->def);
@@ -278,6 +277,9 @@ xenXMConfigCacheAddFile(virConnectPtr conn, const char *filename)
             virDomainDefFree(entry->def);
             VIR_FREE(entry->filename);
             VIR_FREE(entry);
+            virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                           _("xenXMConfigCacheRefresh: virHashAddEntry name"));
+            return -1;
         }
     }
     VIR_DEBUG("Added config %s %s", entry->def->name, filename);
@@ -324,7 +326,7 @@ xenXMConfigCacheRefresh(virConnectPtr conn)
         return -1;
     }
 
-    while ((ent = readdir(dh))) {
+    while ((ret = virDirRead(dh, &ent, priv->configDir)) > 0) {
         struct stat st;
         char *path;
 
@@ -369,7 +371,7 @@ xenXMConfigCacheRefresh(virConnectPtr conn)
 
         /* If we already have a matching entry and it is not
            modified, then carry on to next one*/
-        if (xenXMConfigCacheAddFile(conn, path) < 0) {
+        if (xenXMConfigCacheAddFile(conn, path, now) < 0) {
             /* Ignoring errors, since a lot of stuff goes wrong in /etc/xen */
         }
 
@@ -383,7 +385,6 @@ xenXMConfigCacheRefresh(virConnectPtr conn)
     args.now = now;
     args.priv = priv;
     virHashRemoveSet(priv->configCache, xenXMConfigReaper, &args);
-    ret = 0;
 
     closedir(dh);
 
@@ -479,16 +480,16 @@ xenXMDomainGetInfo(virConnectPtr conn,
         goto error;
 
     memset(info, 0, sizeof(virDomainInfo));
-    info->maxMem = entry->def->mem.max_balloon;
+    info->maxMem = virDomainDefGetMemoryActual(entry->def);
     info->memory = entry->def->mem.cur_balloon;
-    info->nrVirtCpu = entry->def->vcpus;
+    info->nrVirtCpu = virDomainDefGetVcpus(entry->def);
     info->state = VIR_DOMAIN_SHUTOFF;
     info->cpuTime = 0;
 
     xenUnifiedUnlock(priv);
     return 0;
 
-error:
+ error:
     xenUnifiedUnlock(priv);
     return -1;
 }
@@ -522,7 +523,7 @@ xenXMDomainGetXMLDesc(virConnectPtr conn,
                            priv->xmlopt,
                            false);
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -557,8 +558,8 @@ xenXMDomainSetMemory(virConnectPtr conn,
         goto cleanup;
 
     entry->def->mem.cur_balloon = memory;
-    if (entry->def->mem.cur_balloon > entry->def->mem.max_balloon)
-        entry->def->mem.cur_balloon = entry->def->mem.max_balloon;
+    if (entry->def->mem.cur_balloon > virDomainDefGetMemoryActual(entry->def))
+        entry->def->mem.cur_balloon = virDomainDefGetMemoryActual(entry->def);
 
     /* If this fails, should we try to undo our changes to the
      * in-memory representation of the config file. I say not!
@@ -567,7 +568,7 @@ xenXMDomainSetMemory(virConnectPtr conn,
         goto cleanup;
     ret = 0;
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -600,10 +601,10 @@ xenXMDomainSetMaxMemory(virConnectPtr conn,
     if (!(entry = virHashLookup(priv->configCache, filename)))
         goto cleanup;
 
-    entry->def->mem.max_balloon = memory;
-    if (entry->def->mem.cur_balloon > entry->def->mem.max_balloon)
-        entry->def->mem.cur_balloon = entry->def->mem.max_balloon;
+    if (entry->def->mem.cur_balloon > memory)
+        entry->def->mem.cur_balloon = memory;
 
+    virDomainDefSetMemoryTotal(entry->def, memory);
     /* If this fails, should we try to undo our changes to the
      * in-memory representation of the config file. I say not!
      */
@@ -611,7 +612,7 @@ xenXMDomainSetMaxMemory(virConnectPtr conn,
         goto cleanup;
     ret = 0;
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -636,9 +637,9 @@ xenXMDomainGetMaxMemory(virConnectPtr conn,
     if (!(entry = virHashLookup(priv->configCache, filename)))
         goto cleanup;
 
-    ret = entry->def->mem.max_balloon;
+    ret = virDomainDefGetMemoryActual(entry->def);
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -693,7 +694,8 @@ xenXMDomainSetVcpusFlags(virConnectPtr conn,
     /* Can't specify a current larger than stored maximum; but
      * reducing maximum can silently reduce current.  */
     if (!(flags & VIR_DOMAIN_VCPU_MAXIMUM))
-        max = entry->def->maxvcpus;
+        max = virDomainDefGetVcpusMax(entry->def);
+
     if (vcpus > max) {
         virReportError(VIR_ERR_INVALID_ARG,
                        _("requested vcpus is greater than max allowable"
@@ -702,11 +704,11 @@ xenXMDomainSetVcpusFlags(virConnectPtr conn,
     }
 
     if (flags & VIR_DOMAIN_VCPU_MAXIMUM) {
-        entry->def->maxvcpus = vcpus;
-        if (entry->def->vcpus > vcpus)
-            entry->def->vcpus = vcpus;
+        if (virDomainDefSetVcpusMax(entry->def, vcpus) < 0)
+            goto cleanup;
     } else {
-        entry->def->vcpus = vcpus;
+        if (virDomainDefSetVcpus(entry->def, vcpus) < 0)
+            goto cleanup;
     }
 
     /* If this fails, should we try to undo our changes to the
@@ -716,7 +718,7 @@ xenXMDomainSetVcpusFlags(virConnectPtr conn,
         goto cleanup;
     ret = 0;
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -759,10 +761,12 @@ xenXMDomainGetVcpusFlags(virConnectPtr conn,
     if (!(entry = virHashLookup(priv->configCache, filename)))
         goto cleanup;
 
-    ret = ((flags & VIR_DOMAIN_VCPU_MAXIMUM) ? entry->def->maxvcpus
-           : entry->def->vcpus);
+    if (flags & VIR_DOMAIN_VCPU_MAXIMUM)
+        ret = virDomainDefGetVcpusMax(entry->def);
+    else
+        ret = virDomainDefGetVcpus(entry->def);
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -844,9 +848,9 @@ xenXMDomainLookupByName(virConnectPtr conn, const char *domname)
     if (!(entry = virHashLookup(priv->configCache, filename)))
         goto cleanup;
 
-    ret = virDomainDefNew(domname, entry->def->uuid, -1);
+    ret = virDomainDefNewFull(domname, entry->def->uuid, -1);
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -887,9 +891,9 @@ xenXMDomainLookupByUUID(virConnectPtr conn, const unsigned char *uuid)
     if (!(entry = virHashSearch(priv->configCache, xenXMDomainSearchForUUID, (const void *)uuid)))
         goto cleanup;
 
-    ret = virDomainDefNew(entry->def->name, uuid, -1);
+    ret = virDomainDefNewFull(entry->def->name, uuid, -1);
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -916,7 +920,7 @@ xenXMDomainCreate(virConnectPtr conn,
     if (!(entry = virHashLookup(priv->configCache, filename)))
         goto error;
 
-    if (!(sexpr = xenFormatSxpr(conn, entry->def, priv->xendConfigVersion)))
+    if (!(sexpr = xenFormatSxpr(conn, entry->def)))
         goto error;
 
     ret = xenDaemonDomainCreateXML(conn, sexpr);
@@ -967,7 +971,7 @@ xenXMDomainDefineXML(virConnectPtr conn, virDomainDefPtr def)
         return -1;
     }
 
-    if (!(conf = xenFormatXM(conn, def, priv->xendConfigVersion)))
+    if (!(conf = xenFormatXM(conn, def)))
         goto error;
 
     /*
@@ -1101,7 +1105,7 @@ xenXMDomainUndefine(virConnectPtr conn,
 
     ret = 0;
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -1115,7 +1119,10 @@ struct xenXMListIteratorContext {
 };
 
 static void
-xenXMListIterator(void *payload ATTRIBUTE_UNUSED, const void *name, void *data) {
+xenXMListIterator(void *payload ATTRIBUTE_UNUSED,
+                  const void *name,
+                  void *data)
+{
     struct xenXMListIteratorContext *ctx = data;
     virDomainDefPtr def = NULL;
 
@@ -1173,7 +1180,7 @@ xenXMListDefinedDomains(virConnectPtr conn, char **const names, int maxnames)
 
     ret = ctx.count;
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -1195,7 +1202,7 @@ xenXMNumOfDefinedDomains(virConnectPtr conn)
 
     ret = virHashSize(priv->nameConfigMap);
 
-cleanup:
+ cleanup:
     xenUnifiedUnlock(priv);
     return ret;
 }
@@ -1248,7 +1255,7 @@ xenXMDomainAttachDeviceFlags(virConnectPtr conn,
     if (!(dev = virDomainDeviceDefParse(xml, entry->def,
                                         priv->caps,
                                         priv->xmlopt,
-                                        VIR_DOMAIN_XML_INACTIVE)))
+                                        VIR_DOMAIN_DEF_PARSE_INACTIVE)))
         goto cleanup;
 
     switch (dev->type) {
@@ -1262,10 +1269,8 @@ xenXMDomainAttachDeviceFlags(virConnectPtr conn,
 
     case VIR_DOMAIN_DEVICE_NET:
     {
-        if (VIR_REALLOC_N(def->nets, def->nnets+1) < 0)
+        if (VIR_APPEND_ELEMENT(def->nets, def->nnets, dev->data.net) < 0)
             goto cleanup;
-        def->nets[def->nnets++] = dev->data.net;
-        dev->data.net = NULL;
         break;
     }
 
@@ -1337,7 +1342,7 @@ xenXMDomainDetachDeviceFlags(virConnectPtr conn,
     if (!(dev = virDomainDeviceDefParse(xml, entry->def,
                                         priv->caps,
                                         priv->xmlopt,
-                                        VIR_DOMAIN_XML_INACTIVE)))
+                                        VIR_DOMAIN_DEF_PARSE_INACTIVE)))
         goto cleanup;
 
     switch (dev->type) {
@@ -1348,12 +1353,7 @@ xenXMDomainDetachDeviceFlags(virConnectPtr conn,
                 dev->data.disk->dst &&
                 STREQ(def->disks[i]->dst, dev->data.disk->dst)) {
                 virDomainDiskDefFree(def->disks[i]);
-                if (i < (def->ndisks - 1))
-                    memmove(def->disks + i,
-                            def->disks + i + 1,
-                            sizeof(*def->disks) *
-                            (def->ndisks - (i + 1)));
-                def->ndisks--;
+                VIR_DELETE_ELEMENT(def->disks, i, def->ndisks);
                 break;
             }
         }
@@ -1365,12 +1365,7 @@ xenXMDomainDetachDeviceFlags(virConnectPtr conn,
         for (i = 0; i < def->nnets; i++) {
             if (!virMacAddrCmp(&def->nets[i]->mac, &dev->data.net->mac)) {
                 virDomainNetDefFree(def->nets[i]);
-                if (i < (def->nnets - 1))
-                    memmove(def->nets + i,
-                            def->nets + i + 1,
-                            sizeof(*def->nets) *
-                            (def->nnets - (i + 1)));
-                def->nnets--;
+                VIR_DELETE_ELEMENT(def->nets, i, def->nnets);
                 break;
             }
         }
@@ -1433,25 +1428,24 @@ int
 xenXMDomainGetAutostart(virDomainDefPtr def,
                         int *autostart)
 {
-    char *linkname = xenXMAutostartLinkName(def);
     char *config = xenXMDomainConfigName(def);
     int ret = -1;
 
-    if (!linkname || !config)
+    if (!config)
         goto cleanup;
 
-    *autostart = virFileLinkPointsTo(linkname, config);
+    *autostart = virFileRelLinkPointsTo("/etc/xen/auto/", def->name, config);
     if (*autostart < 0) {
         virReportSystemError(errno,
-                             _("cannot check link %s points to config %s"),
-                             linkname, config);
+                             _("cannot check link /etc/xen/auto/%s points "
+                               "to config %s"),
+                             def->name, config);
         goto cleanup;
     }
 
     ret = 0;
 
-cleanup:
-    VIR_FREE(linkname);
+ cleanup:
     VIR_FREE(config);
     return ret;
 }
@@ -1487,7 +1481,7 @@ xenXMDomainSetAutostart(virDomainDefPtr def,
     }
     ret = 0;
 
-cleanup:
+ cleanup:
     VIR_FREE(linkname);
     VIR_FREE(config);
 

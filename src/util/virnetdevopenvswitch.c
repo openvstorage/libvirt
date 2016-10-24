@@ -34,6 +34,8 @@
 
 #define VIR_FROM_THIS VIR_FROM_NONE
 
+VIR_LOG_INIT("util.netdevopenvswitch");
+
 /**
  * virNetDevOpenvswitchAddPort:
  * @brname: the bridge name
@@ -120,10 +122,8 @@ int virNetDevOpenvswitchAddPort(const char *brname, const char *ifname,
                 virBufferAsprintf(&buf, "%d", virtVlan->tag[i]);
             }
 
-            if (virBufferError(&buf)) {
-                virReportOOMError();
+            if (virBufferCheckError(&buf) < 0)
                 goto cleanup;
-            }
             virCommandAddArg(cmd, virBufferCurrentContent(&buf));
         } else if (virtVlan->nTags) {
             virCommandAddArgFormat(cmd, "tag=%d", virtVlan->tag[0]);
@@ -150,14 +150,14 @@ int virNetDevOpenvswitchAddPort(const char *brname, const char *ifname,
     }
 
     if (virCommandRun(cmd, NULL) < 0) {
-        virReportSystemError(VIR_ERR_INTERNAL_ERROR,
-                             _("Unable to add port %s to OVS bridge %s"),
-                             ifname, brname);
+        virReportError(VIR_ERR_INTERNAL_ERROR,
+                       _("Unable to add port %s to OVS bridge %s"),
+                       ifname, brname);
         goto cleanup;
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     virBufferFreeAndReset(&buf);
     VIR_FREE(attachedmac_ex_id);
     VIR_FREE(ifaceid_ex_id);
@@ -184,13 +184,13 @@ int virNetDevOpenvswitchRemovePort(const char *brname ATTRIBUTE_UNUSED, const ch
     virCommandAddArgList(cmd, "--timeout=5", "--", "--if-exists", "del-port", ifname, NULL);
 
     if (virCommandRun(cmd, NULL) < 0) {
-        virReportSystemError(VIR_ERR_INTERNAL_ERROR,
-                             _("Unable to delete port %s from OVS"), ifname);
+        virReportError(VIR_ERR_INTERNAL_ERROR,
+                       _("Unable to delete port %s from OVS"), ifname);
         goto cleanup;
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     virCommandFree(cmd);
     return ret;
 }
@@ -216,16 +216,16 @@ int virNetDevOpenvswitchGetMigrateData(char **migrate, const char *ifname)
 
     /* Run the command */
     if (virCommandRun(cmd, NULL) < 0) {
-        virReportSystemError(VIR_ERR_INTERNAL_ERROR,
-                             _("Unable to run command to get OVS port data for "
-                             "interface %s"), ifname);
+        virReportError(VIR_ERR_INTERNAL_ERROR,
+                       _("Unable to run command to get OVS port data for "
+                         "interface %s"), ifname);
         goto cleanup;
     }
 
     /* Wipeout the newline */
     (*migrate)[strlen(*migrate) - 1] = '\0';
     ret = 0;
-cleanup:
+ cleanup:
     virCommandFree(cmd);
     return ret;
 }
@@ -255,14 +255,14 @@ int virNetDevOpenvswitchSetMigrateData(char *migrate, const char *ifname)
 
     /* Run the command */
     if (virCommandRun(cmd, NULL) < 0) {
-        virReportSystemError(VIR_ERR_INTERNAL_ERROR,
-                             _("Unable to run command to set OVS port data for "
-                             "interface %s"), ifname);
+        virReportError(VIR_ERR_INTERNAL_ERROR,
+                       _("Unable to run command to set OVS port data for "
+                         "interface %s"), ifname);
         goto cleanup;
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     virCommandFree(cmd);
     return ret;
 }

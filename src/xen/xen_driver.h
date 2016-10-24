@@ -1,5 +1,5 @@
 /*
- * xen_unified.c: Unified Xen driver.
+ * xen_driver.h: Unified Xen driver.
  *
  * Copyright (C) 2007, 2010-2011 Red Hat, Inc.
  *
@@ -104,7 +104,7 @@ typedef struct _xenUnifiedDomainInfo xenUnifiedDomainInfo;
 typedef xenUnifiedDomainInfo *xenUnifiedDomainInfoPtr;
 
 struct _xenUnifiedDomainInfoList {
-    unsigned int count;
+    size_t count;
     xenUnifiedDomainInfoPtr *doms;
 };
 typedef struct _xenUnifiedDomainInfoList xenUnifiedDomainInfoList;
@@ -125,8 +125,6 @@ struct _xenUnifiedPrivate {
     virCapsPtr caps;
     virDomainXMLOptionPtr xmlopt;
     int handle;			/* Xen hypervisor handle */
-
-    int xendConfigVersion;      /* XenD config version */
 
     /* connection to xend */
     struct sockaddr_storage addr;

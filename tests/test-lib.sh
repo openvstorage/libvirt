@@ -18,10 +18,11 @@
 #
 # Based on an idea from GNU coreutils
 
-test -z "$abs_srcdir" && abs_srcdir=$(pwd)
-test -z "$abs_builddir" && abs_builddir=$(pwd)
-test -z "$abs_top_srcdir" && abs_top_srcdir=$(pwd)/..
-test -z "$abs_top_builddir" && abs_top_builddir=$(pwd)/..
+_scriptdir="$(realpath $(dirname $0))"
+test -z "$abs_srcdir" && abs_srcdir=$_scriptdir
+test -z "$abs_builddir" && abs_builddir=$_scriptdir
+test -z "$abs_top_srcdir" && abs_top_srcdir=$_scriptdir/..
+test -z "$abs_top_builddir" && abs_top_builddir=$_scriptdir/..
 test -z "$LC_ALL" && LC_ALL=C
 
 # Skip this test if the shell lacks support for functions.
@@ -248,9 +249,9 @@ trap '(exit $?); exit $?' 1 2 13 15
 
 cd "$t_" || error_ "failed to cd to $t_"
 
-if ( diff --version < /dev/null 2>&1 | grep GNU ) 2>&1 > /dev/null; then
+if ( diff --version < /dev/null 2>&1 | grep GNU ) > /dev/null 2>&1; then
   compare() { diff -u "$@"; }
-elif ( cmp --version < /dev/null 2>&1 | grep GNU ) 2>&1 > /dev/null; then
+elif ( cmp --version < /dev/null 2>&1 | grep GNU ) > /dev/null 2>&1; then
   compare() { cmp -s "$@"; }
 else
   compare() { cmp "$@"; }

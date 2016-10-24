@@ -52,6 +52,9 @@
 #include "virstring.h"
 
 #define VIR_FROM_THIS VIR_FROM_NETWORK
+
+VIR_LOG_INIT("util.dnsmasq");
+
 #define DNSMASQ_HOSTSFILE_SUFFIX "hostsfile"
 #define DNSMASQ_ADDNHOSTSFILE_SUFFIX "addnhosts"
 
@@ -148,6 +151,7 @@ addnhostsNew(const char *name,
              const char *config_dir)
 {
     dnsmasqAddnHostsfile *addnhostsfile;
+    virBuffer buf = VIR_BUFFER_INITIALIZER;
 
     if (VIR_ALLOC(addnhostsfile) < 0)
         return NULL;
@@ -155,13 +159,20 @@ addnhostsNew(const char *name,
     addnhostsfile->hosts = NULL;
     addnhostsfile->nhosts = 0;
 
-    if (virAsprintf(&addnhostsfile->path, "%s/%s.%s", config_dir, name,
-                    DNSMASQ_ADDNHOSTSFILE_SUFFIX) < 0)
+    virBufferAsprintf(&buf, "%s", config_dir);
+    virBufferEscapeString(&buf, "/%s", name);
+    virBufferAsprintf(&buf, ".%s", DNSMASQ_ADDNHOSTSFILE_SUFFIX);
+
+    if (virBufferCheckError(&buf) < 0)
+                goto error;
+
+    if (!(addnhostsfile->path = virBufferContentAndReset(&buf)))
         goto error;
 
     return addnhostsfile;
 
  error:
+    virBufferFreeAndReset(&buf);
     addnhostsFree(addnhostsfile);
     return NULL;
 }
@@ -329,7 +340,7 @@ hostsfileAdd(dnsmasqHostsfile *hostsfile,
         if (virAsprintf(&hostsfile->hosts[hostsfile->nhosts].host, "%s,%s,%s",
                         mac, ipstr, name) < 0)
             goto error;
-    } else if (name && !mac){
+    } else if (name && !mac) {
         if (virAsprintf(&hostsfile->hosts[hostsfile->nhosts].host, "%s,%s",
                         name, ipstr) < 0)
             goto error;
@@ -354,6 +365,7 @@ hostsfileNew(const char *name,
              const char *config_dir)
 {
     dnsmasqHostsfile *hostsfile;
+    virBuffer buf = VIR_BUFFER_INITIALIZER;
 
     if (VIR_ALLOC(hostsfile) < 0)
         return NULL;
@@ -361,13 +373,19 @@ hostsfileNew(const char *name,
     hostsfile->hosts = NULL;
     hostsfile->nhosts = 0;
 
-    if (virAsprintf(&hostsfile->path, "%s/%s.%s", config_dir, name,
-                    DNSMASQ_HOSTSFILE_SUFFIX) < 0)
-        goto error;
+    virBufferAsprintf(&buf, "%s", config_dir);
+    virBufferEscapeString(&buf, "/%s", name);
+    virBufferAsprintf(&buf, ".%s", DNSMASQ_HOSTSFILE_SUFFIX);
 
+    if (virBufferCheckError(&buf) < 0)
+                goto error;
+
+    if (!(hostsfile->path = virBufferContentAndReset(&buf)))
+        goto error;
     return hostsfile;
 
  error:
+    virBufferFreeAndReset(&buf);
     hostsfileFree(hostsfile);
     return NULL;
 }
@@ -682,7 +700,7 @@ dnsmasqCapsSetFromBuffer(dnsmasqCapsPtr caps, const char *buf)
              dnsmasqCapsGet(caps, DNSMASQ_CAPS_BIND_DYNAMIC) ? "" : "NOT ");
     return 0;
 
-fail:
+ fail:
     p = strchrnul(buf, '\n');
     virReportError(VIR_ERR_INTERNAL_ERROR,
                    _("cannot parse %s version number in '%.*s'"),
@@ -702,7 +720,7 @@ dnsmasqCapsSetFromFile(dnsmasqCapsPtr caps, const char *path)
 
     ret = dnsmasqCapsSetFromBuffer(caps, buf);
 
-cleanup:
+ cleanup:
     VIR_FREE(buf);
     return ret;
 }
@@ -723,9 +741,8 @@ dnsmasqCapsRefreshInternal(dnsmasqCapsPtr caps, bool force)
                              caps->binaryPath);
         return -1;
     }
-    if (!force && caps->mtime == sb.st_mtime) {
+    if (!force && caps->mtime == sb.st_mtime)
         return 0;
-    }
     caps->mtime = sb.st_mtime;
 
     /* Make sure the binary we are about to try exec'ing exists.
@@ -764,7 +781,7 @@ dnsmasqCapsRefreshInternal(dnsmasqCapsPtr caps, bool force)
 
     ret = dnsmasqCapsSetFromBuffer(caps, complete);
 
-cleanup:
+ cleanup:
     virCommandFree(cmd);
     VIR_FREE(help);
     VIR_FREE(version);
@@ -787,7 +804,7 @@ dnsmasqCapsNewEmpty(const char *binaryPath)
         goto error;
     return caps;
 
-error:
+ error:
     virObjectUnref(caps);
     return NULL;
 }
@@ -872,10 +889,6 @@ dnsmasqCapsGetVersion(dnsmasqCapsPtr caps)
 bool
 dnsmasqCapsGet(dnsmasqCapsPtr caps, dnsmasqCapsFlags flag)
 {
-    bool b;
 
-    if (!caps || virBitmapGetBit(caps->flags, flag, &b) < 0)
-        return false;
-    else
-        return b;
+    return caps && virBitmapIsBitSet(caps->flags, flag);
 }

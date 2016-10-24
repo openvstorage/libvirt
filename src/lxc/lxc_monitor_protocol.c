@@ -5,6 +5,7 @@
  */
 
 #include "lxc_monitor_protocol.h"
+#include "virxdrdefs.h"
 
 bool_t
 xdr_virLXCMonitorExitStatus (XDR *xdrs, virLXCMonitorExitStatus *objp)

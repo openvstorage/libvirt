@@ -206,7 +206,7 @@ typedef enum {
 
     /**
      * @desc: Use domain power management
-     * @message: Using domain power management requires authoriation
+     * @message: Using domain power management requires authorization
      */
     VIR_ACCESS_PERM_DOMAIN_PM_CONTROL,  /* S3/S5 suspend/wakeup */
 
@@ -220,7 +220,7 @@ typedef enum {
 
     /**
      * @desc: Inject domain NMI
-     * @message: Injecting interrupt requries authoriation
+     * @message: Injecting interrupt requires authorization
      */
     VIR_ACCESS_PERM_DOMAIN_INJECT_NMI,   /* Trigger interrupts */
 
@@ -238,9 +238,15 @@ typedef enum {
 
     /**
      * @desc: Trim domain filesystems
-     * @message: Trimming domain filesystems require authorization
+     * @message: Trimming domain filesystems requires authorization
      */
     VIR_ACCESS_PERM_DOMAIN_FS_TRIM,      /* Issue TRIM to guest filesystems */
+
+    /**
+     * @desc: Freeze and thaw domain filesystems
+     * @message: Freezing and thawing domain filesystems requires authorization
+     */
+    VIR_ACCESS_PERM_DOMAIN_FS_FREEZE,    /* Freeze and thaw guest filesystems */
 
     /* Peeking at guest */
 
@@ -282,12 +288,23 @@ typedef enum {
      */
     VIR_ACCESS_PERM_DOMAIN_SCREENSHOT,    /* Trigger a screen shot */
 
-
     /**
      * @desc: Open domain namespace
      * @message: Opening domain namespaces requires authorization
      */
     VIR_ACCESS_PERM_DOMAIN_OPEN_NAMESPACE,
+
+    /**
+     * @desc: Write domain time
+     * @message: Setting the domain time requires authorization
+     */
+    VIR_ACCESS_PERM_DOMAIN_SET_TIME,
+
+    /**
+     * @desc: Set password of the domain's account
+     * @message: Setting the domain accounts' password requires authorization
+     */
+    VIR_ACCESS_PERM_DOMAIN_SET_PASSWORD,
 
     VIR_ACCESS_PERM_DOMAIN_LAST,
 } virAccessPermDomain;
@@ -359,7 +376,7 @@ typedef enum {
 
     /**
      * @desc: Write network
-     * @message: Writing network configuration requries authorization
+     * @message: Writing network configuration requires authorization
      */
     VIR_ACCESS_PERM_NETWORK_WRITE,
 

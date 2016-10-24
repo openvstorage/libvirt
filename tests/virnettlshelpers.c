@@ -34,6 +34,8 @@
 
 # define VIR_FROM_THIS VIR_FROM_RPC
 
+VIR_LOG_INIT("tests.nettlshelpers");
+
 /*
  * These store some static data that is needed when
  * encoding extensions in the x509 certs
@@ -82,7 +84,8 @@ static gnutls_x509_privkey_t testTLSLoadKey(void)
 
     if ((err = gnutls_x509_privkey_import(key, &data,
                                           GNUTLS_X509_FMT_PEM)) < 0) {
-        if (err != GNUTLS_E_BASE64_UNEXPECTED_HEADER_ERROR) {
+        if (err != GNUTLS_E_BASE64_UNEXPECTED_HEADER_ERROR &&
+            err != GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE) {
             VIR_WARN("Failed to import key %s", gnutls_strerror(err));
             abort();
         }
@@ -381,7 +384,7 @@ testTLSGenerateCert(struct testTLSCertReq *req,
      * If no 'ca' is set then we are self signing
      * the cert. This is done for the root CA certs
      */
-    if ((err = gnutls_x509_crt_sign(crt, ca ? ca : crt, privkey) < 0)) {
+    if ((err = gnutls_x509_crt_sign(crt, ca ? ca : crt, privkey)) < 0) {
         VIR_WARN("Failed to sign certificate %s", gnutls_strerror(err));
         abort();
     }
@@ -389,7 +392,7 @@ testTLSGenerateCert(struct testTLSCertReq *req,
     /*
      * Finally write the new cert out to disk
      */
-    if ((err = gnutls_x509_crt_export(crt, GNUTLS_X509_FMT_PEM, buffer, &size) < 0)) {
+    if ((err = gnutls_x509_crt_export(crt, GNUTLS_X509_FMT_PEM, buffer, &size)) < 0) {
         VIR_WARN("Failed to export certificate %s", gnutls_strerror(err));
         abort();
     }

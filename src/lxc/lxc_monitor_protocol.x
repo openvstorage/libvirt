@@ -4,6 +4,8 @@
  * the libvirt_lxc helper program.
  */
 
+%#include "virxdrdefs.h"
+
 enum virLXCMonitorExitStatus {
     VIR_LXC_MONITOR_EXIT_STATUS_ERROR,
     VIR_LXC_MONITOR_EXIT_STATUS_SHUTDOWN,
@@ -11,7 +13,7 @@ enum virLXCMonitorExitStatus {
 };
 
 struct virLXCMonitorExitEventMsg {
-    enum virLXCMonitorExitStatus status;
+    virLXCMonitorExitStatus status;
 };
 
 struct virLXCMonitorInitEventMsg {

@@ -53,6 +53,8 @@ struct libxlDomainJobObj {
     virCond cond;                       /* Use to coordinate jobs */
     enum libxlDomainJob active;         /* Currently running job */
     int owner;                          /* Thread which set current job */
+    unsigned long long started;         /* When the job started */
+    virDomainJobInfoPtr current;        /* Statistics for the current job */
 };
 
 typedef struct _libxlDomainObjPrivate libxlDomainObjPrivate;
@@ -60,14 +62,11 @@ typedef libxlDomainObjPrivate *libxlDomainObjPrivatePtr;
 struct _libxlDomainObjPrivate {
     virObjectLockable parent;
 
-    /* per domain log stream for libxl messages */
-    FILE *logger_file;
-    xentoollog_logger *logger;
-    /* per domain libxl ctx */
-    libxl_ctx *ctx;
     /* console */
     virChrdevsPtr devs;
     libxl_evgen_domain_death *deathW;
+    unsigned short migrationPort;
+    char *lockState;
 
     struct libxlDomainJobObj job;
 };
@@ -75,7 +74,7 @@ struct _libxlDomainObjPrivate {
 
 extern virDomainXMLPrivateDataCallbacks libxlDomainXMLPrivateDataCallbacks;
 extern virDomainDefParserConfig libxlDomainDefParserConfig;
-
+extern const struct libxl_event_hooks ev_hooks;
 
 int
 libxlDomainObjPrivateInitCtx(virDomainObjPtr vm);
@@ -90,5 +89,67 @@ bool
 libxlDomainObjEndJob(libxlDriverPrivatePtr driver,
                      virDomainObjPtr obj)
     ATTRIBUTE_RETURN_CHECK;
+
+int
+libxlDomainJobUpdateTime(struct libxlDomainJobObj *job)
+    ATTRIBUTE_RETURN_CHECK;
+
+void
+libxlDomainEventQueue(libxlDriverPrivatePtr driver,
+                      virObjectEventPtr event);
+
+char *
+libxlDomainManagedSavePath(libxlDriverPrivatePtr driver,
+                           virDomainObjPtr vm);
+
+int
+libxlDomainSaveImageOpen(libxlDriverPrivatePtr driver,
+                         libxlDriverConfigPtr cfg,
+                         const char *from,
+                         virDomainDefPtr *ret_def,
+                         libxlSavefileHeaderPtr ret_hdr)
+    ATTRIBUTE_NONNULL(4) ATTRIBUTE_NONNULL(5);
+
+int
+libxlDomainDestroyInternal(libxlDriverPrivatePtr driver,
+                           virDomainObjPtr vm);
+
+void
+libxlDomainCleanup(libxlDriverPrivatePtr driver,
+                   virDomainObjPtr vm);
+
+/*
+ * Note: Xen 4.3 removed the const from the event handler signature.
+ * Detect which signature to use based on
+ * LIBXL_HAVE_NONCONST_EVENT_OCCURS_EVENT_ARG.
+ */
+# ifdef LIBXL_HAVE_NONCONST_EVENT_OCCURS_EVENT_ARG
+#  define VIR_LIBXL_EVENT_CONST /* empty */
+# else
+#  define VIR_LIBXL_EVENT_CONST const
+# endif
+
+void
+libxlDomainEventHandler(void *data,
+                        VIR_LIBXL_EVENT_CONST libxl_event *event);
+
+int
+libxlDomainAutoCoreDump(libxlDriverPrivatePtr driver,
+                        virDomainObjPtr vm);
+
+int
+libxlDomainSetVcpuAffinities(libxlDriverPrivatePtr driver,
+                             virDomainObjPtr vm);
+
+int
+libxlDomainStart(libxlDriverPrivatePtr driver,
+                 virDomainObjPtr vm,
+                 bool start_paused,
+                 int restore_fd);
+
+bool
+libxlDomainDefCheckABIStability(libxlDriverPrivatePtr driver,
+                                virDomainDefPtr src,
+                                virDomainDefPtr dst);
 
 #endif /* LIBXL_DOMAIN_H */

@@ -45,7 +45,7 @@ typedef enum {
 
     VIR_ARCH_MIPS64,       /* MIPS        64 BE http://en.wikipedia.org/wiki/MIPS_architecture */
     VIR_ARCH_MIPS64EL,     /* MIPS        64 LE http://en.wikipedia.org/wiki/MIPS_architecture */
-    VIR_ARCH_OR32,         /* OpenRisc    32 BE http://en.wikipedia.org/wiki/OpenRISC#QEMU_support*/
+    VIR_ARCH_OR32,         /* OpenRisc    32 BE http://en.wikipedia.org/wiki/OpenRISC#QEMU_support */
     VIR_ARCH_PARISC,       /* PA-Risc     32 BE http://en.wikipedia.org/wiki/PA-RISC */
     VIR_ARCH_PARISC64,     /* PA-Risc     64 BE http://en.wikipedia.org/wiki/PA-RISC */
 
@@ -72,6 +72,23 @@ typedef enum {
 
 # define ARCH_IS_X86(arch)  ((arch) == VIR_ARCH_X86_64 ||\
                              (arch) == VIR_ARCH_I686)
+
+# define ARCH_IS_PPC(arch)  ((arch) == VIR_ARCH_PPC ||\
+                             (arch) == VIR_ARCH_PPCLE ||\
+                             (arch) == VIR_ARCH_PPC64 ||\
+                             (arch) == VIR_ARCH_PPC64LE ||\
+                             (arch) == VIR_ARCH_PPCEMB)
+
+# define ARCH_IS_PPC64(arch)  ((arch) == VIR_ARCH_PPC64 ||\
+                               (arch) == VIR_ARCH_PPC64LE)
+
+# define ARCH_IS_ARM(arch)  ((arch) == VIR_ARCH_ARMV6L ||\
+                             (arch) == VIR_ARCH_ARMV7L ||\
+                             (arch) == VIR_ARCH_ARMV7B ||\
+                             (arch) == VIR_ARCH_AARCH64)
+
+# define ARCH_IS_S390(arch) ((arch) == VIR_ARCH_S390 ||\
+                             (arch) == VIR_ARCH_S390X)
 
 typedef enum {
     VIR_ARCH_LITTLE_ENDIAN,

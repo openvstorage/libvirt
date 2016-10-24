@@ -1,7 +1,7 @@
 /*
  * viruri.c: URI parsing wrappers for libxml2 functions
  *
- * Copyright (C) 2012 Red Hat, Inc.
+ * Copyright (C) 2012-2014 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -25,9 +25,13 @@
 #include "viralloc.h"
 #include "virerror.h"
 #include "virbuffer.h"
+#include "virlog.h"
 #include "virstring.h"
+#include "virutil.h"
 
 #define VIR_FROM_THIS VIR_FROM_URI
+
+VIR_LOG_INIT("util.uri");
 
 static int
 virURIParamAppend(virURIPtr uri,
@@ -50,7 +54,7 @@ virURIParamAppend(virURIPtr uri,
 
     return 0;
 
-error:
+ error:
     VIR_FREE(pname);
     VIR_FREE(pvalue);
     return -1;
@@ -80,32 +84,28 @@ virURIParseParams(virURIPtr uri)
         eq = strchr(query, '=');
         if (eq && eq >= end) eq = NULL;
 
-        /* Empty section (eg. "&&"). */
-        if (end == query)
+        if (end == query) {
+            /* Empty section (eg. "&&"). */
             goto next;
-
-        /* If there is no '=' character, then we have just "name"
-         * and consistent with CGI.pm we assume value is "".
-         */
-        else if (!eq) {
+        } else if (!eq) {
+            /* If there is no '=' character, then we have just "name"
+             * and consistent with CGI.pm we assume value is "".
+             */
             name = xmlURIUnescapeString(query, end - query, NULL);
             if (!name) goto no_memory;
-        }
-        /* Or if we have "name=" here (works around annoying
-         * problem when calling xmlURIUnescapeString with len = 0).
-         */
-        else if (eq+1 == end) {
+        } else if (eq+1 == end) {
+            /* Or if we have "name=" here (works around annoying
+             * problem when calling xmlURIUnescapeString with len = 0).
+             */
             name = xmlURIUnescapeString(query, eq - query, NULL);
             if (!name) goto no_memory;
-        }
-        /* If the '=' character is at the beginning then we have
-         * "=value" and consistent with CGI.pm we _ignore_ this.
-         */
-        else if (query == eq)
+        } else if (query == eq) {
+            /* If the '=' character is at the beginning then we have
+             * "=value" and consistent with CGI.pm we _ignore_ this.
+             */
             goto next;
-
-        /* Otherwise it's "name=value". */
-        else {
+        } else {
+            /* Otherwise it's "name=value". */
             name = xmlURIUnescapeString(query, eq - query, NULL);
             if (!name)
                 goto no_memory;
@@ -120,7 +120,7 @@ virURIParseParams(virURIPtr uri)
         if (virURIParamAppend(uri, name, value ? value : "") < 0) {
             VIR_FREE(name);
             VIR_FREE(value);
-            goto no_memory;
+            return -1;
         }
         VIR_FREE(name);
         VIR_FREE(value);
@@ -186,22 +186,10 @@ virURIParse(const char *uri)
     if (VIR_STRDUP(ret->user, xmluri->user) < 0)
         goto error;
 
-    /* First check: does it even make sense to jump inside */
-    if (ret->server != NULL &&
-        ret->server[0] == '[') {
-        size_t length = strlen(ret->server);
-
-        /* We want to modify the server string only if there are
-         * square brackets on both ends and inside there is IPv6
-         * address. Otherwise we could make a mistake by modifying
-         * something other than an IPv6 address. */
-        if (ret->server[length - 1] == ']' && strchr(ret->server, ':')) {
-            memmove(&ret->server[0], &ret->server[1], length - 2);
-            ret->server[length - 2] = '\0';
-        }
-        /* Even after such modification, it is completely ok to free
-         * the uri with xmlFreeURI() */
-    }
+    /* Strip square bracket from an IPv6 address.
+     * The function modifies the string in-place. Even after such
+     * modification, it is OK to free the URI with xmlFreeURI. */
+    virStringStripIPv6Brackets(ret->server);
 
     if (virURIParseParams(ret) < 0)
         goto error;
@@ -210,7 +198,7 @@ virURIParse(const char *uri)
 
     return ret;
 
-error:
+ error:
     xmlFreeURI(xmluri);
     virURIFree(ret);
     return NULL;
@@ -258,13 +246,20 @@ virURIFormat(virURIPtr uri)
         xmluri.server = tmpserver;
     }
 
+    /*
+     * This helps libxml2 deal with the difference
+     * between uri:/absolute/path and uri:///absolute/path.
+     */
+    if (!xmluri.server && !xmluri.port)
+        xmluri.port = -1;
+
     ret = (char *)xmlSaveUri(&xmluri);
     if (!ret) {
         virReportOOMError();
         goto cleanup;
     }
 
-cleanup:
+ cleanup:
     VIR_FREE(tmpserver);
 
     return ret;
@@ -286,11 +281,8 @@ char *virURIFormatParams(virURIPtr uri)
         }
     }
 
-    if (virBufferError(&buf)) {
-        virBufferFreeAndReset(&buf);
-        virReportOOMError();
+    if (virBufferCheckError(&buf) < 0)
         return NULL;
-    }
 
     return virBufferContentAndReset(&buf);
 }
@@ -322,4 +314,92 @@ void virURIFree(virURIPtr uri)
     VIR_FREE(uri->params);
 
     VIR_FREE(uri);
+}
+
+
+#define URI_ALIAS_CHARS "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+
+static int
+virURIFindAliasMatch(virConfValuePtr value, const char *alias,
+                     char **uri)
+{
+    virConfValuePtr entry;
+    size_t alias_len;
+
+    if (value->type != VIR_CONF_LIST) {
+        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                       _("Expected a list for 'uri_aliases' config parameter"));
+        return -1;
+    }
+
+    entry = value->list;
+    alias_len = strlen(alias);
+    while (entry) {
+        char *offset;
+        size_t safe;
+
+        if (entry->type != VIR_CONF_STRING) {
+            virReportError(VIR_ERR_CONF_SYNTAX, "%s",
+                           _("Expected a string for 'uri_aliases' config "
+                             "parameter list entry"));
+            return -1;
+        }
+
+        if (!(offset = strchr(entry->str, '='))) {
+            virReportError(VIR_ERR_CONF_SYNTAX,
+                           _("Malformed 'uri_aliases' config entry '%s', "
+                             "expected 'alias=uri://host/path'"), entry->str);
+            return -1;
+        }
+
+        safe = strspn(entry->str, URI_ALIAS_CHARS);
+        if (safe < (offset - entry->str)) {
+            virReportError(VIR_ERR_CONF_SYNTAX,
+                           _("Malformed 'uri_aliases' config entry '%s', "
+                             "aliases may only contain 'a-Z, 0-9, _, -'"),
+                            entry->str);
+            return -1;
+        }
+
+        if (alias_len == (offset - entry->str) &&
+            STREQLEN(entry->str, alias, alias_len)) {
+            VIR_DEBUG("Resolved alias '%s' to '%s'",
+                      alias, offset+1);
+            return VIR_STRDUP(*uri, offset+1);
+        }
+
+        entry = entry->next;
+    }
+
+    VIR_DEBUG("No alias found for '%s', continuing...",
+              alias);
+    return 0;
+}
+
+
+/**
+ * virURIResolveAlias:
+ * @conf: configuration file handler
+ * @alias: URI alias to be resolved
+ * @uri: URI object reference where the resolved URI should be stored
+ *
+ * Resolves @alias to a canonical URI according to our configuration
+ * file.
+ *
+ * Returns 0 on success, -1 on error.
+ */
+int
+virURIResolveAlias(virConfPtr conf, const char *alias, char **uri)
+{
+    int ret = -1;
+    virConfValuePtr value = NULL;
+
+    *uri = NULL;
+
+    if ((value = virConfGetValue(conf, "uri_aliases")))
+        ret = virURIFindAliasMatch(value, alias, uri);
+    else
+        ret = 0;
+
+    return ret;
 }

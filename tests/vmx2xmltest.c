@@ -25,47 +25,44 @@ testCapsInit(void)
 {
     virCapsGuestPtr guest = NULL;
 
-    caps = virCapabilitiesNew(VIR_ARCH_I686, 1, 1);
+    caps = virCapabilitiesNew(VIR_ARCH_I686, true, true);
 
-    if (caps == NULL) {
+    if (caps == NULL)
         return;
-    }
 
     virCapabilitiesAddHostMigrateTransport(caps, "esx");
 
     /* i686 guest */
     guest =
-      virCapabilitiesAddGuest(caps, "hvm",
+      virCapabilitiesAddGuest(caps, VIR_DOMAIN_OSTYPE_HVM,
                               VIR_ARCH_I686,
                               NULL, NULL, 0, NULL);
 
-    if (guest == NULL) {
+    if (guest == NULL)
         goto failure;
-    }
 
-    if (virCapabilitiesAddGuestDomain(guest, "vmware", NULL, NULL, 0,
+    if (virCapabilitiesAddGuestDomain(guest, VIR_DOMAIN_VIRT_VMWARE, NULL, NULL, 0,
                                       NULL) == NULL) {
         goto failure;
     }
 
     /* x86_64 guest */
     guest =
-      virCapabilitiesAddGuest(caps, "hvm",
+      virCapabilitiesAddGuest(caps, VIR_DOMAIN_OSTYPE_HVM,
                               VIR_ARCH_X86_64,
                               NULL, NULL, 0, NULL);
 
-    if (guest == NULL) {
+    if (guest == NULL)
         goto failure;
-    }
 
-    if (virCapabilitiesAddGuestDomain(guest, "vmware", NULL, NULL, 0,
+    if (virCapabilitiesAddGuestDomain(guest, VIR_DOMAIN_VIRT_VMWARE, NULL, NULL, 0,
                                       NULL) == NULL) {
         goto failure;
     }
 
     return;
 
-  failure:
+ failure:
     virObjectUnref(caps);
     caps = NULL;
 }
@@ -75,17 +72,13 @@ testCompareFiles(const char *vmx, const char *xml)
 {
     int ret = -1;
     char *vmxData = NULL;
-    char *xmlData = NULL;
     char *formatted = NULL;
     virDomainDefPtr def = NULL;
 
     if (virtTestLoadFile(vmx, &vmxData) < 0)
         goto cleanup;
 
-    if (virtTestLoadFile(xml, &xmlData) < 0)
-        goto cleanup;
-
-    if (!(def = virVMXParseConfig(&ctx, xmlopt, vmxData)))
+    if (!(def = virVMXParseConfig(&ctx, xmlopt, caps, vmxData)))
         goto cleanup;
 
     if (!virDomainDefCheckABIStability(def, def)) {
@@ -93,19 +86,16 @@ testCompareFiles(const char *vmx, const char *xml)
         goto cleanup;
     }
 
-    if (!(formatted = virDomainDefFormat(def, VIR_DOMAIN_XML_SECURE)))
+    if (!(formatted = virDomainDefFormat(def, VIR_DOMAIN_DEF_FORMAT_SECURE)))
         goto cleanup;
 
-    if (STRNEQ(xmlData, formatted)) {
-        virtTestDifference(stderr, xmlData, formatted);
+    if (virtTestCompareToFile(formatted, xml) < 0)
         goto cleanup;
-    }
 
     ret = 0;
 
-  cleanup:
+ cleanup:
     VIR_FREE(vmxData);
-    VIR_FREE(xmlData);
     VIR_FREE(formatted);
     virDomainDefFree(def);
 
@@ -134,7 +124,7 @@ testCompareHelper(const void *data)
 
     ret = testCompareFiles(vmx, xml);
 
-  cleanup:
+ cleanup:
     VIR_FREE(vmx);
     VIR_FREE(xml);
 
@@ -178,7 +168,7 @@ testParseVMXFileName(const char *fileName, void *opaque ATTRIBUTE_UNUSED)
             goto cleanup;
     }
 
-  cleanup:
+ cleanup:
     VIR_FREE(copyOfFileName);
 
     return src;
@@ -201,9 +191,8 @@ mymain(void)
 
     testCapsInit();
 
-    if (caps == NULL) {
+    if (caps == NULL)
         return EXIT_FAILURE;
-    }
 
     if (!(xmlopt = virVMXDomainXMLConfInit()))
         return EXIT_FAILURE;
@@ -212,6 +201,7 @@ mymain(void)
     ctx.parseFileName = testParseVMXFileName;
     ctx.formatFileName = NULL;
     ctx.autodetectSCSIControllerModel = NULL;
+    ctx.datacenterPath = NULL;
 
     DO_TEST("case-insensitive-1", "case-insensitive-1");
     DO_TEST("case-insensitive-2", "case-insensitive-2");
@@ -232,6 +222,7 @@ mymain(void)
     DO_TEST("cdrom-scsi-device", "cdrom-scsi-device");
     DO_TEST("cdrom-scsi-raw-device", "cdrom-scsi-raw-device");
     DO_TEST("cdrom-scsi-raw-auto-detect", "cdrom-scsi-raw-auto-detect");
+    DO_TEST("cdrom-scsi-passthru", "cdrom-scsi-passthru");
     DO_TEST("cdrom-ide-file", "cdrom-ide-file");
     DO_TEST("cdrom-ide-device", "cdrom-ide-device");
     DO_TEST("cdrom-ide-raw-device", "cdrom-ide-raw-device");
@@ -272,6 +263,7 @@ mymain(void)
     DO_TEST("esx-in-the-wild-4", "esx-in-the-wild-4");
     DO_TEST("esx-in-the-wild-5", "esx-in-the-wild-5");
     DO_TEST("esx-in-the-wild-6", "esx-in-the-wild-6");
+    DO_TEST("esx-in-the-wild-7", "esx-in-the-wild-7");
 
     DO_TEST("gsx-in-the-wild-1", "gsx-in-the-wild-1");
     DO_TEST("gsx-in-the-wild-2", "gsx-in-the-wild-2");
@@ -288,6 +280,10 @@ mymain(void)
     DO_TEST("smbios", "smbios");
 
     DO_TEST("svga", "svga");
+
+    ctx.datacenterPath = "folder1/folder2/datacenter1";
+
+    DO_TEST("datacenterpath", "datacenterpath");
 
     virObjectUnref(caps);
     virObjectUnref(xmlopt);

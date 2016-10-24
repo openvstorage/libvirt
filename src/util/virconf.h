@@ -23,6 +23,8 @@
 #ifndef __VIR_CONF_H__
 # define __VIR_CONF_H__
 
+# include "virutil.h"
+
 /**
  * virConfType:
  * one of the possible type for a value from the configuration file
@@ -30,11 +32,15 @@
  * TODO: we probably need a float too.
  */
 typedef enum {
-    VIR_CONF_NONE = 0,		/* undefined */
-    VIR_CONF_LONG = 1,		/* a long int */
-    VIR_CONF_STRING = 2,	/* a string */
-    VIR_CONF_LIST = 3		/* a list */
+    VIR_CONF_NONE = 0,      /* undefined */
+    VIR_CONF_LONG,          /* a long int */
+    VIR_CONF_ULONG,         /* an unsigned long int */
+    VIR_CONF_STRING,        /* a string */
+    VIR_CONF_LIST,          /* a list */
+    VIR_CONF_LAST,          /* sentinel */
 } virConfType;
+
+VIR_ENUM_DECL(virConf)
 
 typedef enum {
     VIR_CONF_FLAG_VMX_FORMAT = 1,  /* allow ':', '.' and '-' in names for compatibility
@@ -44,21 +50,6 @@ typedef enum {
                                       configuration file, restricts allowed value types
                                       to string only and don't expect quotes for values */
 } virConfFlags;
-
-static inline const char *
-virConfTypeName (virConfType t)
-{
-    switch (t) {
-    case VIR_CONF_LONG:
-        return "long";
-    case VIR_CONF_STRING:
-        return "string";
-    case VIR_CONF_LIST:
-        return "list";
-    default:
-        return "*unexpected*";
-    }
-}
 
 /**
  * virConfValue:
@@ -86,25 +77,25 @@ typedef int (*virConfWalkCallback)(const char* name,
                                    virConfValuePtr value,
                                    void *opaque);
 
-virConfPtr      virConfNew             (void);
-virConfPtr	virConfReadFile	(const char *filename, unsigned int flags);
-virConfPtr	virConfReadMem		(const char *memory,
-                                         int len, unsigned int flags);
-int		virConfFree		(virConfPtr conf);
-void            virConfFreeValue      (virConfValuePtr val);
-
-virConfValuePtr	virConfGetValue	(virConfPtr conf,
-                                         const char *setting);
-int             virConfSetValue        (virConfPtr conf,
-                                         const char *setting,
-                                         virConfValuePtr value);
+virConfPtr virConfNew(void);
+virConfPtr virConfReadFile(const char *filename, unsigned int flags);
+virConfPtr virConfReadMem(const char *memory,
+                          int len, unsigned int flags);
+int virConfFree(virConfPtr conf);
+void virConfFreeValue(virConfValuePtr val);
+virConfValuePtr virConfGetValue(virConfPtr conf,
+                                const char *setting);
+int virConfSetValue(virConfPtr conf,
+                    const char *setting,
+                    virConfValuePtr value);
 int virConfWalk(virConfPtr conf,
                 virConfWalkCallback callback,
                 void *opaque);
-int		virConfWriteFile	(const char *filename,
-                                         virConfPtr conf);
-int		virConfWriteMem	(char *memory,
-                                         int *len,
-                                         virConfPtr conf);
+int virConfWriteFile(const char *filename,
+                     virConfPtr conf);
+int virConfWriteMem(char *memory,
+                    int *len,
+                    virConfPtr conf);
+int virConfLoadConfig(virConfPtr *conf, const char *name);
 
 #endif /* __VIR_CONF_H__ */

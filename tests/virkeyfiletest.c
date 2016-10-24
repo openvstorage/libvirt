@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011, 2012 Red Hat, Inc.
+ * Copyright (C) 2011, 2012, 2014 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -32,6 +32,7 @@
 
 #define VIR_FROM_THIS VIR_FROM_RPC
 
+VIR_LOG_INIT("tests.keyfiletest");
 
 static int testParse(const void *args ATTRIBUTE_UNUSED)
 {
@@ -69,17 +70,17 @@ static int testParse(const void *args ATTRIBUTE_UNUSED)
         VIR_DEBUG("Missing Value 'Foo.three'");
         goto cleanup;
     }
-    if (!STREQ(virKeyFileGetValueString(kf, "Foo", "one"),
+    if (STRNEQ(virKeyFileGetValueString(kf, "Foo", "one"),
                "The first entry is here")) {
         VIR_DEBUG("Wrong value for 'Foo.one'");
         goto cleanup;
     }
-    if (!STREQ(virKeyFileGetValueString(kf, "Foo", "two"),
+    if (STRNEQ(virKeyFileGetValueString(kf, "Foo", "two"),
                "The second entry")) {
         VIR_DEBUG("Wrong value for 'Foo.one'");
         goto cleanup;
     }
-    if (!STREQ(virKeyFileGetValueString(kf, "Foo", "three"),
+    if (STRNEQ(virKeyFileGetValueString(kf, "Foo", "three"),
                "The third entry")) {
         VIR_DEBUG("Wrong value for 'Foo.one'");
         goto cleanup;
@@ -93,14 +94,14 @@ static int testParse(const void *args ATTRIBUTE_UNUSED)
         VIR_DEBUG("Missing Value 'Bar.one'");
         goto cleanup;
     }
-    if (!STREQ(virKeyFileGetValueString(kf, "Bar", "one"),
+    if (STRNEQ(virKeyFileGetValueString(kf, "Bar", "one"),
                "The first entry in second group")) {
         VIR_DEBUG("Wrong value for 'Bar.one'");
         goto cleanup;
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     virKeyFileFree(kf);
     return ret;
 }
@@ -116,7 +117,7 @@ mymain(void)
     if (virtTestRun("Test parse", testParse, NULL) < 0)
         ret = -1;
 
-    return ret==0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 VIRT_TEST_MAIN(mymain)

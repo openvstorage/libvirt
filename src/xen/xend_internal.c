@@ -1,7 +1,7 @@
 /*
  * xend_internal.c: access to Xen though the Xen Daemon interface
  *
- * Copyright (C) 2010-2013 Red Hat, Inc.
+ * Copyright (C) 2010-2014 Red Hat, Inc.
  * Copyright (C) 2005 Anthony Liguori <aliguori@us.ibm.com>
  *
  * This library is free software; you can redistribute it and/or
@@ -62,6 +62,8 @@
 #include <xen/dom0_ops.h>
 
 #define VIR_FROM_THIS VIR_FROM_XEND
+
+VIR_LOG_INIT("xen.xend_internal");
 
 /*
  * The number of Xen scheduler parameters
@@ -145,14 +147,12 @@ wr_sync(int fd, void *buffer, size_t size, int do_read)
         }
 
         /* recoverable error, retry  */
-        if ((len == -1) && ((errno == EAGAIN) || (errno == EINTR))) {
+        if ((len == -1) && ((errno == EAGAIN) || (errno == EINTR)))
             continue;
-        }
 
         /* eof */
-        if (len == 0) {
+        if (len == 0)
             break;
-        }
 
         /* unrecoverable error */
         if (len == -1) {
@@ -503,14 +503,11 @@ xend_op_ext(virConnectPtr xend, const char *path, const char *key, va_list ap)
             virBufferAddChar(&buf, '&');
     }
 
-    if (virBufferError(&buf)) {
-        virBufferFreeAndReset(&buf);
-        virReportOOMError();
+    if (virBufferCheckError(&buf) < 0)
         return -1;
-    }
 
     content = virBufferContentAndReset(&buf);
-    VIR_DEBUG("xend op: %s\n", content);
+    VIR_DEBUG("xend op: %s", content);
     ret = http2unix(xend_post(xend, path, content));
     VIR_FREE(content);
 
@@ -526,7 +523,7 @@ xend_op_ext(virConnectPtr xend, const char *path, const char *key, va_list ap)
  * @ap: input values to pass to the operation
  * @...: input values to pass to the operation
  *
- * internal routine to run a POST RPC operation to the Xen Daemon targetting
+ * internal routine to run a POST RPC operation to the Xen Daemon targeting
  * a given domain.
  *
  * Returns 0 in case of success, -1 in case of failure.
@@ -584,7 +581,7 @@ sexpr_get(virConnectPtr xend, const char *fmt, ...)
 
     res = string2sexpr(buffer);
 
-cleanup:
+ cleanup:
     VIR_FREE(buffer);
     return res;
 }
@@ -595,7 +592,7 @@ cleanup:
  * @sexpr: an S-Expression
  * @name: the name for the value
  *
- * convenience function to lookup an UUID value from the S-Expression
+ * convenience function to lookup a UUID value from the S-Expression
  *
  * Returns a -1 on error, 0 on success
  */
@@ -783,11 +780,11 @@ xenDaemonListDomainsOld(virConnectPtr xend)
 
     ret[i] = NULL;
 
-  error:
+ error:
     sexpr_free(root);
     return ret;
 
-no_memory:
+ no_memory:
     for (i = 0; i < count; i++)
         VIR_FREE(ret[i]);
     VIR_FREE(ret);
@@ -850,9 +847,7 @@ xenDaemonDomainLookupByName_ids(virConnectPtr xend,
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        "%s", _("domain information incomplete, missing domid"));
         goto error;
-    }
-    ret = strtol(value, NULL, 0);
-    if ((ret == 0) && (value[0] != '0')) {
+    } else if (virStrToLong_i(value, NULL, 0, &ret) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        "%s", _("domain information incorrect domid not numeric"));
         ret = -1;
@@ -863,34 +858,9 @@ xenDaemonDomainLookupByName_ids(virConnectPtr xend,
         }
     }
 
-  error:
+ error:
     sexpr_free(root);
     return ret;
-}
-
-
-static int
-xend_detect_config_version(virConnectPtr conn)
-{
-    struct sexpr *root;
-    const char *value;
-    xenUnifiedPrivatePtr priv = conn->privateData;
-
-    root = sexpr_get(conn, "/xend/node/");
-    if (root == NULL)
-        return -1;
-
-    value = sexpr_node(root, "node/xend_config_format");
-
-    if (value) {
-        priv->xendConfigVersion = strtol(value, NULL, 10);
-    }  else {
-        /* Xen prior to 3.0.3 did not have the xend_config_format
-           field, and is implicitly version 1. */
-        priv->xendConfigVersion = XEND_CONFIG_VERSION_3_0_2;
-    }
-    sexpr_free(root);
-    return 0;
 }
 
 
@@ -1090,25 +1060,26 @@ sexpr_to_xend_topology(const struct sexpr *root, virCapsPtr caps)
         }
 
         for (n = 0, cpu = 0; cpu < numCpus; cpu++) {
-            bool used;
-
-            ignore_value(virBitmapGetBit(cpuset, cpu, &used));
-            if (used)
+            if (virBitmapIsBitSet(cpuset, cpu))
                 cpuInfo[n++].id = cpu;
         }
         virBitmapFree(cpuset);
 
-        if (virCapabilitiesAddHostNUMACell(caps, cell, nb_cpus, 0, cpuInfo) < 0)
+        if (virCapabilitiesAddHostNUMACell(caps, cell, 0,
+                                           nb_cpus, cpuInfo,
+                                           0, NULL,
+                                           0, NULL) < 0)
             goto error;
         cpuInfo = NULL;
     }
 
     return 0;
 
-  parse_error:
+ parse_error:
     virReportError(VIR_ERR_XEN_CALL, "%s", _("topology syntax error"));
-  error:
-    virCapabilitiesClearHostNUMACellCPUTopology(cpuInfo, nb_cpus);
+ error:
+    if (nb_cpus > 0)
+        virCapabilitiesClearHostNUMACellCPUTopology(cpuInfo, nb_cpus);
     VIR_FREE(cpuInfo);
     return -1;
 }
@@ -1124,14 +1095,12 @@ sexpr_to_xend_topology(const struct sexpr *root, virCapsPtr caps)
  * Returns the domain def pointer or NULL in case of error.
  */
 static virDomainDefPtr
-sexpr_to_domain(virConnectPtr conn, const struct sexpr *root)
+sexpr_to_domain(virConnectPtr conn ATTRIBUTE_UNUSED, const struct sexpr *root)
 {
     virDomainDefPtr ret = NULL;
     unsigned char uuid[VIR_UUID_BUFLEN];
     const char *name;
-    const char *tmp;
     int id = -1;
-    xenUnifiedPrivatePtr priv = conn->privateData;
 
     if (sexpr_uuid(uuid, root, "domain/uuid") < 0)
         goto error;
@@ -1139,19 +1108,12 @@ sexpr_to_domain(virConnectPtr conn, const struct sexpr *root)
     if (name == NULL)
         goto error;
 
-    tmp = sexpr_node(root, "domain/domid");
-    /* New 3.0.4 XenD will not report a domid for inactive domains,
-     * so only error out for old XenD
-     */
-    if (!tmp && priv->xendConfigVersion < XEND_CONFIG_VERSION_3_0_4)
-        goto error;
-
-    if (tmp)
+    if (sexpr_node(root, "domain/domid"))
         id = sexpr_int(root, "domain/domid");
 
-    return virDomainDefNew(name, uuid, id);
+    return virDomainDefNewFull(name, uuid, id);
 
-error:
+ error:
     virReportError(VIR_ERR_INTERNAL_ERROR,
                    "%s", _("failed to parse Xend domain information"));
     virObjectUnref(ret);
@@ -1199,23 +1161,19 @@ xenDaemonOpen(virConnectPtr conn,
             virReportError(VIR_ERR_NO_CONNECT, __FUNCTION__);
             goto failed;
         }
-        if (xenDaemonOpen_unix(conn, conn->uri->path) < 0 ||
-            xend_detect_config_version(conn) == -1)
+        if (xenDaemonOpen_unix(conn, conn->uri->path) < 0)
             goto failed;
-    }
-    else if (STRCASEEQ(conn->uri->scheme, "xen")) {
+    } else if (STRCASEEQ(conn->uri->scheme, "xen")) {
         /*
          * try first to open the unix socket
          */
-        if (xenDaemonOpen_unix(conn, "/var/lib/xend/xend-socket") == 0 &&
-            xend_detect_config_version(conn) != -1)
+        if (xenDaemonOpen_unix(conn, "/var/lib/xend/xend-socket") == 0)
             goto done;
 
         /*
          * try though http on port 8000
          */
-        if (xenDaemonOpen_tcp(conn, "localhost", "8000") < 0 ||
-            xend_detect_config_version(conn) == -1)
+        if (xenDaemonOpen_tcp(conn, "localhost", "8000") < 0)
             goto failed;
     } else if (STRCASEEQ(conn->uri->scheme, "http")) {
         if (conn->uri->port &&
@@ -1224,8 +1182,7 @@ xenDaemonOpen(virConnectPtr conn,
 
         if (xenDaemonOpen_tcp(conn,
                               conn->uri->server ? conn->uri->server : "localhost",
-                              port ? port : "8000") < 0 ||
-            xend_detect_config_version(conn) == -1)
+                              port ? port : "8000") < 0)
             goto failed;
     } else {
         virReportError(VIR_ERR_NO_CONNECT, __FUNCTION__);
@@ -1235,7 +1192,7 @@ xenDaemonOpen(virConnectPtr conn,
  done:
     ret = 0;
 
-failed:
+ failed:
     VIR_FREE(port);
     return ret;
 }
@@ -1583,7 +1540,7 @@ xenDaemonDomainFetch(virConnectPtr conn, int domid, const char *name,
     if (root == NULL)
         return NULL;
 
-    if (xenGetDomIdFromSxpr(root, priv->xendConfigVersion, &id) < 0)
+    if (xenGetDomIdFromSxpr(root, &id) < 0)
         goto cleanup;
     xenUnifiedLock(priv);
     if (sexpr_lookup(root, "domain/image/hvm"))
@@ -1593,13 +1550,14 @@ xenDaemonDomainFetch(virConnectPtr conn, int domid, const char *name,
     vncport = xenStoreDomainGetVNCPort(conn, id);
     xenUnifiedUnlock(priv);
     if (!(def = xenParseSxpr(root,
-                             priv->xendConfigVersion,
                              cpus,
                              tty,
-                             vncport)))
+                             vncport,
+                             priv->caps,
+                             priv->xmlopt)))
         goto cleanup;
 
-cleanup:
+ cleanup:
     sexpr_free(root);
 
     return def;
@@ -1709,7 +1667,7 @@ xenDaemonLookupByName(virConnectPtr conn, const char *domname)
 
     ret = sexpr_to_domain(conn, root);
 
-error:
+ error:
     sexpr_free(root);
     return ret;
 }
@@ -1755,9 +1713,8 @@ xenDaemonNodeGetTopology(virConnectPtr conn, virCapsPtr caps)
     struct sexpr *root;
 
     root = sexpr_get(conn, "/xend/node/");
-    if (root == NULL) {
+    if (root == NULL)
         return -1;
-    }
 
     ret = sexpr_to_xend_topology(root, caps);
     sexpr_free(root);
@@ -1855,66 +1812,26 @@ xenDaemonDomainPinVcpu(virConnectPtr conn,
 {
     char buf[VIR_UUID_BUFLEN], mapstr[sizeof(cpumap_t) * 64];
     size_t i, j;
-    int ret;
-    xenUnifiedPrivatePtr priv = conn->privateData;
-    virDomainDefPtr def = NULL;
 
     if (maplen > (int)sizeof(cpumap_t)) {
         virReportError(VIR_ERR_INVALID_ARG, __FUNCTION__);
         return -1;
     }
 
-    if (priv->xendConfigVersion < XEND_CONFIG_VERSION_3_0_4) {
-        mapstr[0] = '[';
-        mapstr[1] = 0;
-    } else {
-        mapstr[0] = 0;
-    }
-
+    mapstr[0] = 0;
     /* from bit map, build character string of mapped CPU numbers */
     for (i = 0; i < maplen; i++) for (j = 0; j < 8; j++)
      if (cpumap[i] & (1 << j)) {
         snprintf(buf, sizeof(buf), "%zu,", (8 * i) + j);
         strcat(mapstr, buf);
     }
-    if (priv->xendConfigVersion < XEND_CONFIG_VERSION_3_0_4)
-        mapstr[strlen(mapstr) - 1] = ']';
-    else
-        mapstr[strlen(mapstr) - 1] = 0;
+    mapstr[strlen(mapstr) - 1] = 0;
 
     snprintf(buf, sizeof(buf), "%d", vcpu);
 
-    ret = xend_op(conn, minidef->name, "op", "pincpu", "vcpu", buf,
-                  "cpumap", mapstr, NULL);
+    return xend_op(conn, minidef->name, "op", "pincpu", "vcpu", buf,
+                   "cpumap", mapstr, NULL);
 
-    if (!(def = xenDaemonDomainFetch(conn,
-                                     minidef->id,
-                                     minidef->name,
-                                     NULL)))
-        goto cleanup;
-
-    if (ret == 0) {
-        if (!def->cputune.vcpupin) {
-            if (VIR_ALLOC(def->cputune.vcpupin) < 0)
-                goto cleanup;
-            def->cputune.nvcpupin = 0;
-        }
-        if (virDomainVcpuPinAdd(&def->cputune.vcpupin,
-                                &def->cputune.nvcpupin,
-                                cpumap,
-                                maplen,
-                                vcpu) < 0) {
-            virReportError(VIR_ERR_INTERNAL_ERROR,
-                           "%s", _("failed to add vcpupin xml entry"));
-            return -1;
-        }
-    }
-
-    return ret;
-
-cleanup:
-    virDomainDefFree(def);
-    return -1;
 }
 
 /**
@@ -2065,59 +1982,28 @@ xenDaemonLookupByUUID(virConnectPtr conn, const unsigned char *uuid)
     virDomainDefPtr ret;
     char *name = NULL;
     int id = -1;
-    xenUnifiedPrivatePtr priv = conn->privateData;
+    char *domname = NULL;
+    char uuidstr[VIR_UUID_STRING_BUFLEN];
+    struct sexpr *root = NULL;
 
-    /* Old approach for xen <= 3.0.3 */
-    if (priv->xendConfigVersion < XEND_CONFIG_VERSION_3_0_4) {
-        char **names, **tmp;
-        unsigned char ident[VIR_UUID_BUFLEN];
-        names = xenDaemonListDomainsOld(conn);
-        tmp = names;
+    virUUIDFormat(uuid, uuidstr);
+    root = sexpr_get(conn, "/xend/domain/%s?detail=1", uuidstr);
+    if (root == NULL)
+        return NULL;
+    domname = (char*)sexpr_node(root, "domain/name");
+    if (sexpr_node(root, "domain/domid")) /* only active domains have domid */
+        id = sexpr_int(root, "domain/domid");
+    else
+        id = -1;
 
-        if (names == NULL) {
-            return NULL;
-        }
-        while (*tmp != NULL) {
-            id = xenDaemonDomainLookupByName_ids(conn, *tmp, &ident[0]);
-            if (id >= 0) {
-                if (!memcmp(uuid, ident, VIR_UUID_BUFLEN)) {
-                    name = *tmp;
-                    break;
-                }
-            }
-            tmp++;
-        }
-        tmp = names;
-        while (*tmp) {
-            if (*tmp != name)
-                VIR_FREE(*tmp);
-            tmp++;
-        }
-        VIR_FREE(names);
-    } else { /* New approach for xen >= 3.0.4 */
-        char *domname = NULL;
-        char uuidstr[VIR_UUID_STRING_BUFLEN];
-        struct sexpr *root = NULL;
+    ignore_value(VIR_STRDUP(name, domname));
 
-        virUUIDFormat(uuid, uuidstr);
-        root = sexpr_get(conn, "/xend/domain/%s?detail=1", uuidstr);
-        if (root == NULL)
-            return NULL;
-        domname = (char*)sexpr_node(root, "domain/name");
-        if (sexpr_node(root, "domain/domid")) /* only active domains have domid */
-            id = sexpr_int(root, "domain/domid");
-        else
-            id = -1;
-
-        ignore_value(VIR_STRDUP(name, domname));
-
-        sexpr_free(root);
-    }
+    sexpr_free(root);
 
     if (name == NULL)
         return NULL;
 
-    ret = virDomainDefNew(name, uuid, id);
+    ret = virDomainDefNewFull(name, uuid, id);
 
     VIR_FREE(name);
     return ret;
@@ -2142,7 +2028,6 @@ xenDaemonCreateXML(virConnectPtr conn, virDomainDefPtr def)
     char *sexpr;
     const char *tmp;
     struct sexpr *root;
-    xenUnifiedPrivatePtr priv = conn->privateData;
 
     if (def->id != -1) {
         virReportError(VIR_ERR_OPERATION_INVALID,
@@ -2151,14 +2036,13 @@ xenDaemonCreateXML(virConnectPtr conn, virDomainDefPtr def)
         return -1;
     }
 
-    if (!(sexpr = xenFormatSxpr(conn, def, priv->xendConfigVersion)))
+    if (!(sexpr = xenFormatSxpr(conn, def)))
         return -1;
 
     ret = xenDaemonDomainCreateXML(conn, sexpr);
     VIR_FREE(sexpr);
-    if (ret != 0) {
+    if (ret != 0)
         goto error;
-    }
 
     /* This comes before wait_for_devices, to ensure that latter
        cleanup will destroy the domain upon failure */
@@ -2184,7 +2068,7 @@ xenDaemonCreateXML(virConnectPtr conn, virDomainDefPtr def)
 
     return 0;
 
-  error:
+ error:
     /* Make sure we don't leave a still-born domain around */
     if (def->id != -1)
         xenDaemonDomainDestroy(conn, def);
@@ -2228,21 +2112,9 @@ xenDaemonAttachDeviceFlags(virConnectPtr conn,
             return -1;
         }
     } else {
-        /* Only live config can be changed if xendConfigVersion < 3 */
-        if (priv->xendConfigVersion < XEND_CONFIG_VERSION_3_0_4 &&
-            (flags != VIR_DOMAIN_DEVICE_MODIFY_CURRENT &&
-             flags != VIR_DOMAIN_DEVICE_MODIFY_LIVE)) {
-            virReportError(VIR_ERR_OPERATION_INVALID, "%s",
-                           _("Xend version does not support modifying "
-                             "persistent config"));
-            return -1;
-        }
-        /* Xen only supports modifying both live and persistent config if
-         * xendConfigVersion >= 3
-         */
-        if (priv->xendConfigVersion >= XEND_CONFIG_VERSION_3_0_4 &&
-            (flags != (VIR_DOMAIN_DEVICE_MODIFY_LIVE |
-                       VIR_DOMAIN_DEVICE_MODIFY_CONFIG))) {
+        /* Xen only supports modifying both live and persistent config */
+        if (flags != (VIR_DOMAIN_DEVICE_MODIFY_LIVE |
+                      VIR_DOMAIN_DEVICE_MODIFY_CONFIG)) {
             virReportError(VIR_ERR_OPERATION_INVALID, "%s",
                            _("Xend only supports modifying both live and "
                              "persistent config"));
@@ -2257,7 +2129,7 @@ xenDaemonAttachDeviceFlags(virConnectPtr conn,
         goto cleanup;
 
     if (!(dev = virDomainDeviceDefParse(xml, def, priv->caps, priv->xmlopt,
-                                        VIR_DOMAIN_XML_INACTIVE)))
+                                        VIR_DOMAIN_DEF_PARSE_INACTIVE)))
         goto cleanup;
 
 
@@ -2265,8 +2137,8 @@ xenDaemonAttachDeviceFlags(virConnectPtr conn,
     case VIR_DOMAIN_DEVICE_DISK:
         if (xenFormatSxprDisk(dev->data.disk,
                               &buf,
-                              STREQ(def->os.type, "hvm") ? 1 : 0,
-                              priv->xendConfigVersion, 1) < 0)
+                              def->os.type == VIR_DOMAIN_OSTYPE_HVM ? 1 : 0,
+                              1) < 0)
             goto cleanup;
 
         if (dev->data.disk->device != VIR_DOMAIN_DISK_DEVICE_CDROM &&
@@ -2278,8 +2150,8 @@ xenDaemonAttachDeviceFlags(virConnectPtr conn,
         if (xenFormatSxprNet(conn,
                              dev->data.net,
                              &buf,
-                             STREQ(def->os.type, "hvm") ? 1 : 0,
-                             priv->xendConfigVersion, 1) < 0)
+                             def->os.type == VIR_DOMAIN_OSTYPE_HVM ? 1 : 0,
+                             1) < 0)
             goto cleanup;
 
         char macStr[VIR_MAC_STRING_BUFLEN];
@@ -2331,7 +2203,7 @@ xenDaemonAttachDeviceFlags(virConnectPtr conn,
         }
     }
 
-cleanup:
+ cleanup:
     VIR_FREE(sexpr);
     virDomainDefFree(def);
     virDomainDeviceDefFree(dev);
@@ -2376,21 +2248,9 @@ xenDaemonUpdateDeviceFlags(virConnectPtr conn,
             return -1;
         }
     } else {
-        /* Only live config can be changed if xendConfigVersion < 3 */
-        if (priv->xendConfigVersion < XEND_CONFIG_VERSION_3_0_4 &&
-            (flags != VIR_DOMAIN_DEVICE_MODIFY_CURRENT &&
-             flags != VIR_DOMAIN_DEVICE_MODIFY_LIVE)) {
-            virReportError(VIR_ERR_OPERATION_INVALID, "%s",
-                           _("Xend version does not support modifying "
-                             "persistent config"));
-            return -1;
-        }
-        /* Xen only supports modifying both live and persistent config if
-         * xendConfigVersion >= 3
-         */
-        if (priv->xendConfigVersion >= XEND_CONFIG_VERSION_3_0_4 &&
-            (flags != (VIR_DOMAIN_DEVICE_MODIFY_LIVE |
-                       VIR_DOMAIN_DEVICE_MODIFY_CONFIG))) {
+        /* Xen only supports modifying both live and persistent config */
+        if (flags != (VIR_DOMAIN_DEVICE_MODIFY_LIVE |
+                      VIR_DOMAIN_DEVICE_MODIFY_CONFIG)) {
             virReportError(VIR_ERR_OPERATION_INVALID, "%s",
                            _("Xend only supports modifying both live and "
                              "persistent config"));
@@ -2405,7 +2265,7 @@ xenDaemonUpdateDeviceFlags(virConnectPtr conn,
         goto cleanup;
 
     if (!(dev = virDomainDeviceDefParse(xml, def, priv->caps, priv->xmlopt,
-                                        VIR_DOMAIN_XML_INACTIVE)))
+                                        VIR_DOMAIN_DEF_PARSE_INACTIVE)))
         goto cleanup;
 
 
@@ -2413,8 +2273,8 @@ xenDaemonUpdateDeviceFlags(virConnectPtr conn,
     case VIR_DOMAIN_DEVICE_DISK:
         if (xenFormatSxprDisk(dev->data.disk,
                               &buf,
-                              STREQ(def->os.type, "hvm") ? 1 : 0,
-                              priv->xendConfigVersion, 1) < 0)
+                              def->os.type == VIR_DOMAIN_OSTYPE_HVM ? 1 : 0,
+                              1) < 0)
             goto cleanup;
         break;
 
@@ -2436,7 +2296,7 @@ xenDaemonUpdateDeviceFlags(virConnectPtr conn,
                       "config", sexpr, "dev", ref, NULL);
     }
 
-cleanup:
+ cleanup:
     VIR_FREE(sexpr);
     virDomainDefFree(def);
     virDomainDeviceDefFree(dev);
@@ -2478,21 +2338,9 @@ xenDaemonDetachDeviceFlags(virConnectPtr conn,
             return -1;
         }
     } else {
-        /* Only live config can be changed if xendConfigVersion < 3 */
-        if (priv->xendConfigVersion < XEND_CONFIG_VERSION_3_0_4 &&
-            (flags != VIR_DOMAIN_DEVICE_MODIFY_CURRENT &&
-             flags != VIR_DOMAIN_DEVICE_MODIFY_LIVE)) {
-            virReportError(VIR_ERR_OPERATION_INVALID, "%s",
-                           _("Xend version does not support modifying "
-                             "persistent config"));
-            return -1;
-        }
-        /* Xen only supports modifying both live and persistent config if
-         * xendConfigVersion >= 3
-         */
-        if (priv->xendConfigVersion >= XEND_CONFIG_VERSION_3_0_4 &&
-            (flags != (VIR_DOMAIN_DEVICE_MODIFY_LIVE |
-                       VIR_DOMAIN_DEVICE_MODIFY_CONFIG))) {
+        /* Xen only supports modifying both live and persistent config */
+        if (flags != (VIR_DOMAIN_DEVICE_MODIFY_LIVE |
+                      VIR_DOMAIN_DEVICE_MODIFY_CONFIG)) {
             virReportError(VIR_ERR_OPERATION_INVALID, "%s",
                            _("Xend only supports modifying both live and "
                              "persistent config"));
@@ -2507,7 +2355,7 @@ xenDaemonDetachDeviceFlags(virConnectPtr conn,
         goto cleanup;
 
     if (!(dev = virDomainDeviceDefParse(xml, def, priv->caps, priv->xmlopt,
-                                        VIR_DOMAIN_XML_INACTIVE)))
+                                        VIR_DOMAIN_DEF_PARSE_INACTIVE)))
         goto cleanup;
 
     if (virDomainXMLDevID(conn, minidef, dev, class, ref, sizeof(ref)))
@@ -2527,14 +2375,13 @@ xenDaemonDetachDeviceFlags(virConnectPtr conn,
         ret = xend_op(conn, minidef->name, "op", "device_configure",
                       "config", xendev, "dev", ref, NULL);
         VIR_FREE(xendev);
-    }
-    else {
+    } else {
         ret = xend_op(conn, minidef->name, "op", "device_destroy",
                       "type", class, "dev", ref, "force", "0", "rm_cfg", "1",
                       NULL);
     }
 
-cleanup:
+ cleanup:
     virDomainDefFree(def);
     virDomainDeviceDefFree(dev);
 
@@ -2559,9 +2406,8 @@ xenDaemonDomainGetAutostart(virConnectPtr conn,
     *autostart = 0;
 
     tmp = sexpr_node(root, "domain/on_xend_start");
-    if (tmp && STREQ(tmp, "start")) {
+    if (tmp && STREQ(tmp, "start"))
         *autostart = 1;
-    }
 
     sexpr_free(root);
     return 0;
@@ -2588,7 +2434,7 @@ xenDaemonDomainSetAutostart(virConnectPtr conn,
     if (autonode) {
         const char *val = (autonode->u.s.car->kind == SEXPR_VALUE
                            ? autonode->u.s.car->u.value : NULL);
-        if (!val || (!STREQ(val, "ignore") && !STREQ(val, "start"))) {
+        if (!val || (STRNEQ(val, "ignore") && STRNEQ(val, "start"))) {
             virReportError(VIR_ERR_INTERNAL_ERROR,
                            "%s", _("unexpected value from on_xend_start"));
             goto error;
@@ -2606,10 +2452,8 @@ xenDaemonDomainSetAutostart(virConnectPtr conn,
             goto error;
         }
 
-        if (virBufferError(&buffer)) {
-            virReportOOMError();
+        if (virBufferCheckError(&buffer) < 0)
             goto error;
-        }
 
         content = virBufferContentAndReset(&buffer);
 
@@ -2625,7 +2469,7 @@ xenDaemonDomainSetAutostart(virConnectPtr conn,
     }
 
     ret = 0;
-  error:
+ error:
     virBufferFreeAndReset(&buffer);
     VIR_FREE(content);
     sexpr_free(root);
@@ -2765,8 +2609,7 @@ xenDaemonDomainMigratePerform(virConnectPtr conn,
         if (uriptr->port)
             snprintf(port, sizeof(port), "%d", uriptr->port);
         virURIFree(uriptr);
-    }
-    else if ((p = strrchr(uri, ':')) != NULL) { /* "hostname:port" */
+    } else if ((p = strrchr(uri, ':')) != NULL) { /* "hostname:port" */
         int port_nr, n;
 
         if (virStrToLong_i(p+1, NULL, 10, &port_nr) < 0) {
@@ -2781,8 +2624,7 @@ xenDaemonDomainMigratePerform(virConnectPtr conn,
         if (VIR_STRDUP(hostname, uri) < 0)
             return -1;
         hostname[n] = '\0';
-    }
-    else {                      /* "hostname" (or IP address) */
+    } else {                      /* "hostname" (or IP address) */
         if (VIR_STRDUP(hostname, uri) < 0)
             return -1;
     }
@@ -2820,9 +2662,8 @@ xenDaemonDomainDefineXML(virConnectPtr conn, virDomainDefPtr def)
 {
     int ret = -1;
     char *sexpr;
-    xenUnifiedPrivatePtr priv = conn->privateData;
 
-    if (!(sexpr = xenFormatSxpr(conn, def, priv->xendConfigVersion))) {
+    if (!(sexpr = xenFormatSxpr(conn, def))) {
         virReportError(VIR_ERR_XML_ERROR,
                        "%s", _("failed to build sexpr"));
         goto cleanup;
@@ -2838,7 +2679,7 @@ xenDaemonDomainDefineXML(virConnectPtr conn, virDomainDefPtr def)
 
     ret = 0;
 
-cleanup:
+ cleanup:
     return ret;
 }
 
@@ -2895,7 +2736,7 @@ xenDaemonNumOfDefinedDomains(virConnectPtr conn)
         ret++;
     }
 
-error:
+ error:
     sexpr_free(root);
     return ret;
 }
@@ -2930,11 +2771,11 @@ xenDaemonListDefinedDomains(virConnectPtr conn,
             break;
     }
 
-cleanup:
+ cleanup:
     sexpr_free(root);
     return ret;
 
-error:
+ error:
     for (i = 0; i < ret; ++i)
         VIR_FREE(names[i]);
 
@@ -2956,17 +2797,9 @@ char *
 xenDaemonGetSchedulerType(virConnectPtr conn,
                           int *nparams)
 {
-    xenUnifiedPrivatePtr priv = conn->privateData;
     struct sexpr *root;
     const char *ret = NULL;
     char *schedulertype = NULL;
-
-    /* Support only xendConfigVersion >=4 */
-    if (priv->xendConfigVersion < XEND_CONFIG_VERSION_3_1_0) {
-        virReportError(VIR_ERR_OPERATION_INVALID,
-                       "%s", _("unsupported in xendConfigVersion < 4"));
-        return NULL;
-    }
 
     root = sexpr_get(conn, "/xend/node/");
     if (root == NULL)
@@ -2974,7 +2807,7 @@ xenDaemonGetSchedulerType(virConnectPtr conn,
 
     /* get xen_scheduler from xend/node */
     ret = sexpr_node(root, "node/xen_scheduler");
-    if (ret == NULL){
+    if (ret == NULL) {
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        "%s", _("node information incomplete, missing scheduler name"));
         goto error;
@@ -2994,7 +2827,7 @@ xenDaemonGetSchedulerType(virConnectPtr conn,
         goto error;
     }
 
-error:
+ error:
     sexpr_free(root);
     return schedulertype;
 
@@ -3019,18 +2852,10 @@ xenDaemonGetSchedulerParameters(virConnectPtr conn,
                                 virTypedParameterPtr params,
                                 int *nparams)
 {
-    xenUnifiedPrivatePtr priv = conn->privateData;
     struct sexpr *root;
     char *sched_type = NULL;
     int sched_nparam = 0;
     int ret = -1;
-
-    /* Support only xendConfigVersion >=4 */
-    if (priv->xendConfigVersion < XEND_CONFIG_VERSION_3_1_0) {
-        virReportError(VIR_ERR_OPERATION_INVALID,
-                       "%s", _("unsupported in xendConfigVersion < 4"));
-        return -1;
-    }
 
     /* look up the information by domain name */
     root = sexpr_get(conn, "/xend/domain/%s?detail=1", def->name);
@@ -3045,7 +2870,7 @@ xenDaemonGetSchedulerParameters(virConnectPtr conn,
         goto error;
     }
 
-    switch (sched_nparam){
+    switch (sched_nparam) {
         case XEN_SCHED_SEDF_NPARAM:
             if (*nparams < XEN_SCHED_SEDF_NPARAM) {
                 virReportError(VIR_ERR_INVALID_ARG,
@@ -3100,7 +2925,7 @@ xenDaemonGetSchedulerParameters(virConnectPtr conn,
             goto error;
     }
 
-error:
+ error:
     sexpr_free(root);
     VIR_FREE(sched_type);
     return ret;
@@ -3123,19 +2948,11 @@ xenDaemonSetSchedulerParameters(virConnectPtr conn,
                                 virTypedParameterPtr params,
                                 int nparams)
 {
-    xenUnifiedPrivatePtr priv = conn->privateData;
     struct sexpr *root;
     char *sched_type = NULL;
     size_t i;
     int sched_nparam = 0;
     int ret = -1;
-
-    /* Support only xendConfigVersion >=4 and active domains */
-    if (priv->xendConfigVersion < XEND_CONFIG_VERSION_3_1_0) {
-        virReportError(VIR_ERR_OPERATION_INVALID,
-                       "%s", _("unsupported in xendConfigVersion < 4"));
-        return -1;
-    }
 
     /* look up the information by domain name */
     root = sexpr_get(conn, "/xend/domain/%s?detail=1", def->name);
@@ -3150,7 +2967,7 @@ xenDaemonSetSchedulerParameters(virConnectPtr conn,
         goto error;
     }
 
-    switch (sched_nparam){
+    switch (sched_nparam) {
         case XEN_SCHED_SEDF_NPARAM:
             /* TODO: Implement for Xen/SEDF */
             TODO
@@ -3207,7 +3024,7 @@ xenDaemonSetSchedulerParameters(virConnectPtr conn,
             goto error;
     }
 
-error:
+ error:
     sexpr_free(root);
     VIR_FREE(sched_type);
     return ret;
@@ -3242,13 +3059,13 @@ xenDaemonDomainBlockPeek(virConnectPtr conn,
     const char *actual;
 
     /* Security check: The path must correspond to a block device. */
-    if (minidef->id > 0)
+    if (minidef->id > 0) {
         root = sexpr_get(conn, "/xend/domain/%d?detail=1",
                          minidef->id);
-    else if (minidef->id < 0)
+    } else if (minidef->id < 0) {
         root = sexpr_get(conn, "/xend/domain/%s?detail=1",
                          minidef->name);
-    else {
+    } else {
         /* This call always fails for dom0. */
         virReportError(VIR_ERR_OPERATION_INVALID,
                        "%s", _("domainBlockPeek is not supported for dom0"));
@@ -3260,15 +3077,15 @@ xenDaemonDomainBlockPeek(virConnectPtr conn,
         return -1;
     }
 
-    if (xenGetDomIdFromSxpr(root, priv->xendConfigVersion, &id) < 0)
+    if (xenGetDomIdFromSxpr(root, &id) < 0)
         goto cleanup;
     xenUnifiedLock(priv);
     tty = xenStoreDomainGetConsolePath(conn, id);
     vncport = xenStoreDomainGetVNCPort(conn, id);
     xenUnifiedUnlock(priv);
 
-    if (!(def = xenParseSxpr(root, priv->xendConfigVersion, NULL, tty,
-                             vncport)))
+    if (!(def = xenParseSxpr(root, NULL, tty, vncport,
+                             priv->caps, priv->xmlopt)))
         goto cleanup;
 
     if (!(actual = virDomainDiskPathByName(def, path))) {
@@ -3338,12 +3155,10 @@ virDomainXMLDevID(virConnectPtr conn,
     char *tmp;
 
     if (dev->type == VIR_DOMAIN_DEVICE_DISK) {
-        if (dev->data.disk->driverName &&
-            STREQ(dev->data.disk->driverName, "tap"))
-            strcpy(class, "tap");
-        else if (dev->data.disk->driverName &&
-            STREQ(dev->data.disk->driverName, "tap2"))
-            strcpy(class, "tap2");
+        const char *driver = virDomainDiskGetDriver(dev->data.disk);
+
+        if (STREQ_NULLABLE(driver, "tap") || STREQ_NULLABLE(driver, "tap2"))
+            strcpy(class, driver);
         else
             strcpy(class, "vbd");
 

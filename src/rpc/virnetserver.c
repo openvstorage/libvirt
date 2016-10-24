@@ -1,7 +1,7 @@
 /*
  * virnetserver.c: generic network RPC server
  *
- * Copyright (C) 2006-2012 Red Hat, Inc.
+ * Copyright (C) 2006-2015 Red Hat, Inc.
  * Copyright (C) 2006 Daniel P. Berrange
  *
  * This library is free software; you can redistribute it and/or
@@ -23,38 +23,19 @@
 
 #include <config.h>
 
-#include <unistd.h>
-#include <string.h>
-#include <fcntl.h>
-
 #include "virnetserver.h"
 #include "virlog.h"
 #include "viralloc.h"
 #include "virerror.h"
 #include "virthread.h"
 #include "virthreadpool.h"
-#include "virutil.h"
-#include "virfile.h"
 #include "virnetservermdns.h"
-#include "virdbus.h"
 #include "virstring.h"
-#include "virsystemd.h"
-
-#ifndef SA_SIGINFO
-# define SA_SIGINFO 0
-#endif
 
 #define VIR_FROM_THIS VIR_FROM_RPC
 
-typedef struct _virNetServerSignal virNetServerSignal;
-typedef virNetServerSignal *virNetServerSignalPtr;
+VIR_LOG_INIT("rpc.netserver");
 
-struct _virNetServerSignal {
-    struct sigaction oldaction;
-    int signum;
-    virNetServerSignalFunc func;
-    void *opaque;
-};
 
 typedef struct _virNetServerJob virNetServerJob;
 typedef virNetServerJob *virNetServerJobPtr;
@@ -70,14 +51,6 @@ struct _virNetServer {
 
     virThreadPoolPtr workers;
 
-    bool privileged;
-
-    size_t nsignals;
-    virNetServerSignalPtr *signals;
-    int sigread;
-    int sigwrite;
-    int sigwatch;
-
     char *mdnsGroupName;
     virNetServerMDNSPtr mdns;
     virNetServerMDNSGroupPtr mdnsGroup;
@@ -88,24 +61,18 @@ struct _virNetServer {
     size_t nprograms;
     virNetServerProgramPtr *programs;
 
-    size_t nclients;
-    size_t nclients_max;
-    virNetServerClientPtr *clients;
+    size_t nclients;                    /* Current clients count */
+    virNetServerClientPtr *clients;     /* Clients */
+    size_t nclients_max;                /* Max allowed clients count */
+    size_t nclients_unauth;             /* Unauthenticated clients count */
+    size_t nclients_unauth_max;         /* Max allowed unauth clients count */
 
     int keepaliveInterval;
     unsigned int keepaliveCount;
-    bool keepaliveRequired;
-
-    bool quit;
 
 #ifdef WITH_GNUTLS
     virNetTLSContextPtr tls;
 #endif
-
-    unsigned int autoShutdownTimeout;
-    size_t autoShutdownInhibitions;
-    bool autoShutdownCallingInhibit;
-    int autoShutdownInhibitFd;
 
     virNetServerClientPrivNew clientPrivNew;
     virNetServerClientPrivPreExecRestart clientPrivPreExecRestart;
@@ -118,6 +85,8 @@ static virClassPtr virNetServerClass;
 static void virNetServerDispose(void *obj);
 static void virNetServerUpdateServicesLocked(virNetServerPtr srv,
                                              bool enabled);
+static inline size_t virNetServerTrackPendingAuthLocked(virNetServerPtr srv);
+static inline size_t virNetServerTrackCompletedAuthLocked(virNetServerPtr srv);
 
 static int virNetServerOnceInit(void)
 {
@@ -169,10 +138,10 @@ static int virNetServerProcessMsg(virNetServerPtr srv,
                                     msg) < 0)
         goto cleanup;
 
-done:
+ done:
     ret = 0;
 
-cleanup:
+ cleanup:
     return ret;
 }
 
@@ -192,7 +161,7 @@ static void virNetServerHandleJob(void *jobOpaque, void *opaque)
     VIR_FREE(job);
     return;
 
-error:
+ error:
     virObjectUnref(job->prog);
     virNetMessageFree(job->msg);
     virNetServerClientClose(job->client);
@@ -246,15 +215,15 @@ static int virNetServerDispatchNewMessage(virNetServerClientPtr client,
         ret = virNetServerProcessMsg(srv, client, prog, msg);
     }
 
-cleanup:
+ cleanup:
     virObjectUnlock(srv);
 
     return ret;
 }
 
 
-static int virNetServerAddClient(virNetServerPtr srv,
-                                 virNetServerClientPtr client)
+int virNetServerAddClient(virNetServerPtr srv,
+                          virNetServerClientPtr client)
 {
     virObjectLock(srv);
 
@@ -273,9 +242,20 @@ static int virNetServerAddClient(virNetServerPtr srv,
     srv->clients[srv->nclients-1] = client;
     virObjectRef(client);
 
+    if (virNetServerClientNeedAuth(client))
+        virNetServerTrackPendingAuthLocked(srv);
+
+    if (srv->nclients_unauth_max &&
+        srv->nclients_unauth == srv->nclients_unauth_max) {
+        /* Temporarily stop accepting new clients */
+        VIR_INFO("Temporarily suspending services "
+                 "due to max_anonymous_clients");
+        virNetServerUpdateServicesLocked(srv, false);
+    }
+
     if (srv->nclients == srv->nclients_max) {
         /* Temporarily stop accepting new clients */
-        VIR_DEBUG("Temporarily suspending services due to max_clients");
+        VIR_INFO("Temporarily suspending services due to max_clients");
         virNetServerUpdateServicesLocked(srv, false);
     }
 
@@ -289,7 +269,7 @@ static int virNetServerAddClient(virNetServerPtr srv,
     virObjectUnlock(srv);
     return 0;
 
-error:
+ error:
     virObjectUnlock(srv);
     return -1;
 }
@@ -324,41 +304,13 @@ static int virNetServerDispatchNewClient(virNetServerServicePtr svc,
 }
 
 
-static void
-virNetServerFatalSignal(int sig, siginfo_t *siginfo ATTRIBUTE_UNUSED,
-                        void *context ATTRIBUTE_UNUSED)
-{
-    struct sigaction sig_action;
-    int origerrno;
-
-    origerrno = errno;
-    virLogEmergencyDumpAll(sig);
-
-    /*
-     * If the signal is fatal, avoid looping over this handler
-     * by deactivating it
-     */
-#ifdef SIGUSR2
-    if (sig != SIGUSR2) {
-#endif
-        memset(&sig_action, 0, sizeof(sig_action));
-        sig_action.sa_handler = SIG_DFL;
-        sigaction(sig, &sig_action, NULL);
-        raise(sig);
-#ifdef SIGUSR2
-    }
-#endif
-    errno = origerrno;
-}
-
-
 virNetServerPtr virNetServerNew(size_t min_workers,
                                 size_t max_workers,
                                 size_t priority_workers,
                                 size_t max_clients,
+                                size_t max_anonymous_clients,
                                 int keepaliveInterval,
                                 unsigned int keepaliveCount,
-                                bool keepaliveRequired,
                                 const char *mdnsGroupName,
                                 virNetServerClientPrivNew clientPrivNew,
                                 virNetServerClientPrivPreExecRestart clientPrivPreExecRestart,
@@ -366,7 +318,6 @@ virNetServerPtr virNetServerNew(size_t min_workers,
                                 void *clientPrivOpaque)
 {
     virNetServerPtr srv;
-    struct sigaction sig_action;
 
     if (virNetServerInitialize() < 0)
         return NULL;
@@ -382,16 +333,13 @@ virNetServerPtr virNetServerNew(size_t min_workers,
         goto error;
 
     srv->nclients_max = max_clients;
+    srv->nclients_unauth_max = max_anonymous_clients;
     srv->keepaliveInterval = keepaliveInterval;
     srv->keepaliveCount = keepaliveCount;
-    srv->keepaliveRequired = keepaliveRequired;
-    srv->sigwrite = srv->sigread = -1;
     srv->clientPrivNew = clientPrivNew;
     srv->clientPrivPreExecRestart = clientPrivPreExecRestart;
     srv->clientPrivFree = clientPrivFree;
     srv->clientPrivOpaque = clientPrivOpaque;
-    srv->privileged = geteuid() == 0;
-    srv->autoShutdownInhibitFd = -1;
 
     if (VIR_STRDUP(srv->mdnsGroupName, mdnsGroupName) < 0)
         goto error;
@@ -403,33 +351,8 @@ virNetServerPtr virNetServerNew(size_t min_workers,
             goto error;
     }
 
-    if (virEventRegisterDefaultImpl() < 0)
-        goto error;
-
-    memset(&sig_action, 0, sizeof(sig_action));
-    sig_action.sa_handler = SIG_IGN;
-    sigaction(SIGPIPE, &sig_action, NULL);
-
-    /*
-     * catch fatal errors to dump a log, also hook to USR2 for dynamic
-     * debugging purposes or testing
-     */
-    sig_action.sa_sigaction = virNetServerFatalSignal;
-    sig_action.sa_flags = SA_SIGINFO;
-    sigaction(SIGFPE, &sig_action, NULL);
-    sigaction(SIGSEGV, &sig_action, NULL);
-    sigaction(SIGILL, &sig_action, NULL);
-    sigaction(SIGABRT, &sig_action, NULL);
-#ifdef SIGBUS
-    sigaction(SIGBUS, &sig_action, NULL);
-#endif
-#ifdef SIGUSR2
-    sigaction(SIGUSR2, &sig_action, NULL);
-#endif
-
     return srv;
-
-error:
+ error:
     virObjectUnref(srv);
     return NULL;
 }
@@ -446,14 +369,14 @@ virNetServerPtr virNetServerNewPostExecRestart(virJSONValuePtr object,
     virJSONValuePtr clients;
     virJSONValuePtr services;
     size_t i;
-    int n;
+    ssize_t n;
     unsigned int min_workers;
     unsigned int max_workers;
     unsigned int priority_workers;
     unsigned int max_clients;
+    unsigned int max_anonymous_clients;
     unsigned int keepaliveInterval;
     unsigned int keepaliveCount;
-    bool keepaliveRequired;
     const char *mdnsGroupName = NULL;
 
     if (virJSONValueObjectGetNumberUint(object, "min_workers", &min_workers) < 0) {
@@ -476,6 +399,16 @@ virNetServerPtr virNetServerNewPostExecRestart(virJSONValuePtr object,
                        _("Missing max_clients data in JSON document"));
         goto error;
     }
+    if (virJSONValueObjectHasKey(object, "max_anonymous_clients")) {
+        if (virJSONValueObjectGetNumberUint(object, "max_anonymous_clients",
+                                            &max_anonymous_clients) < 0) {
+            virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                           _("Malformed max_anonymous_clients data in JSON document"));
+            goto error;
+        }
+    } else {
+        max_anonymous_clients = max_clients;
+    }
     if (virJSONValueObjectGetNumberUint(object, "keepaliveInterval", &keepaliveInterval) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("Missing keepaliveInterval data in JSON document"));
@@ -486,11 +419,6 @@ virNetServerPtr virNetServerNewPostExecRestart(virJSONValuePtr object,
                        _("Missing keepaliveCount data in JSON document"));
         goto error;
     }
-    if (virJSONValueObjectGetBoolean(object, "keepaliveRequired", &keepaliveRequired) < 0) {
-        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
-                       _("Missing keepaliveRequired data in JSON document"));
-        goto error;
-    }
 
     if (virJSONValueObjectHasKey(object, "mdnsGroupName") &&
         (!(mdnsGroupName = virJSONValueObjectGetString(object, "mdnsGroupName")))) {
@@ -499,10 +427,11 @@ virNetServerPtr virNetServerNewPostExecRestart(virJSONValuePtr object,
         goto error;
     }
 
-    if (!(srv = virNetServerNew(min_workers, max_clients,
+    if (!(srv = virNetServerNew(min_workers, max_workers,
                                 priority_workers, max_clients,
+                                max_anonymous_clients,
                                 keepaliveInterval, keepaliveCount,
-                                keepaliveRequired, mdnsGroupName,
+                                mdnsGroupName,
                                 clientPrivNew, clientPrivPreExecRestart,
                                 clientPrivFree, clientPrivOpaque)))
         goto error;
@@ -578,7 +507,7 @@ virNetServerPtr virNetServerNewPostExecRestart(virJSONValuePtr object,
 
     return srv;
 
-error:
+ error:
     virObjectUnref(srv);
     return NULL;
 }
@@ -619,6 +548,12 @@ virJSONValuePtr virNetServerPreExecRestart(virNetServerPtr srv)
                        _("Cannot set max_clients data in JSON document"));
         goto error;
     }
+    if (virJSONValueObjectAppendNumberUint(object, "max_anonymous_clients",
+                                           srv->nclients_unauth_max) < 0) {
+        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
+                       _("Cannot set max_anonymous_clients data in JSON document"));
+        goto error;
+    }
     if (virJSONValueObjectAppendNumberUint(object, "keepaliveInterval", srv->keepaliveInterval) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("Cannot set keepaliveInterval data in JSON document"));
@@ -627,11 +562,6 @@ virJSONValuePtr virNetServerPreExecRestart(virNetServerPtr srv)
     if (virJSONValueObjectAppendNumberUint(object, "keepaliveCount", srv->keepaliveCount) < 0) {
         virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
                        _("Cannot set keepaliveCount data in JSON document"));
-        goto error;
-    }
-    if (virJSONValueObjectAppendBoolean(object, "keepaliveRequired", srv->keepaliveRequired) < 0) {
-        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
-                       _("Cannot set keepaliveRequired data in JSON document"));
         goto error;
     }
 
@@ -680,289 +610,10 @@ virJSONValuePtr virNetServerPreExecRestart(virNetServerPtr srv)
 
     return object;
 
-error:
+ error:
     virJSONValueFree(object);
     virObjectUnlock(srv);
     return NULL;
-}
-
-
-bool virNetServerIsPrivileged(virNetServerPtr srv)
-{
-    bool priv;
-    virObjectLock(srv);
-    priv = srv->privileged;
-    virObjectUnlock(srv);
-    return priv;
-}
-
-
-void virNetServerAutoShutdown(virNetServerPtr srv,
-                              unsigned int timeout)
-{
-    virObjectLock(srv);
-
-    srv->autoShutdownTimeout = timeout;
-
-    virObjectUnlock(srv);
-}
-
-
-#if defined(HAVE_DBUS) && defined(DBUS_TYPE_UNIX_FD)
-static void virNetServerGotInhibitReply(DBusPendingCall *pending,
-                                        void *opaque)
-{
-    virNetServerPtr srv = opaque;
-    DBusMessage *reply;
-    int fd;
-
-    virObjectLock(srv);
-    srv->autoShutdownCallingInhibit = false;
-
-    VIR_DEBUG("srv=%p", srv);
-
-    reply = dbus_pending_call_steal_reply(pending);
-    if (reply == NULL)
-        goto cleanup;
-
-    if (dbus_message_get_args(reply, NULL,
-                              DBUS_TYPE_UNIX_FD, &fd,
-                              DBUS_TYPE_INVALID)) {
-        if (srv->autoShutdownInhibitions) {
-            srv->autoShutdownInhibitFd = fd;
-        } else {
-            /* We stopped the last VM since we made the inhibit call */
-            VIR_FORCE_CLOSE(fd);
-        }
-    }
-    dbus_message_unref(reply);
-
-cleanup:
-    virObjectUnlock(srv);
-}
-
-
-/* As per: http://www.freedesktop.org/wiki/Software/systemd/inhibit */
-static void virNetServerCallInhibit(virNetServerPtr srv,
-                                    const char *what,
-                                    const char *who,
-                                    const char *why,
-                                    const char *mode)
-{
-    DBusMessage *message;
-    DBusPendingCall *pendingReply;
-    DBusConnection *systemBus;
-
-    VIR_DEBUG("srv=%p what=%s who=%s why=%s mode=%s",
-              srv, NULLSTR(what), NULLSTR(who), NULLSTR(why), NULLSTR(mode));
-
-    if (!(systemBus = virDBusGetSystemBus()))
-        return;
-
-    /* Only one outstanding call at a time */
-    if (srv->autoShutdownCallingInhibit)
-        return;
-
-    message = dbus_message_new_method_call("org.freedesktop.login1",
-                                           "/org/freedesktop/login1",
-                                           "org.freedesktop.login1.Manager",
-                                           "Inhibit");
-    if (message == NULL)
-        return;
-
-    dbus_message_append_args(message,
-                             DBUS_TYPE_STRING, &what,
-                             DBUS_TYPE_STRING, &who,
-                             DBUS_TYPE_STRING, &why,
-                             DBUS_TYPE_STRING, &mode,
-                             DBUS_TYPE_INVALID);
-
-    pendingReply = NULL;
-    if (dbus_connection_send_with_reply(systemBus, message,
-                                        &pendingReply,
-                                        25*1000)) {
-        dbus_pending_call_set_notify(pendingReply,
-                                     virNetServerGotInhibitReply,
-                                     srv, NULL);
-        srv->autoShutdownCallingInhibit = true;
-    }
-    dbus_message_unref(message);
-}
-#endif
-
-void virNetServerAddShutdownInhibition(virNetServerPtr srv)
-{
-    virObjectLock(srv);
-    srv->autoShutdownInhibitions++;
-
-    VIR_DEBUG("srv=%p inhibitions=%zu", srv, srv->autoShutdownInhibitions);
-
-#if defined(HAVE_DBUS) && defined(DBUS_TYPE_UNIX_FD)
-    if (srv->autoShutdownInhibitions == 1)
-        virNetServerCallInhibit(srv,
-                                "shutdown",
-                                _("Libvirt"),
-                                _("Virtual machines need to be saved"),
-                                "delay");
-#endif
-
-    virObjectUnlock(srv);
-}
-
-
-void virNetServerRemoveShutdownInhibition(virNetServerPtr srv)
-{
-    virObjectLock(srv);
-    srv->autoShutdownInhibitions--;
-
-    VIR_DEBUG("srv=%p inhibitions=%zu", srv, srv->autoShutdownInhibitions);
-
-    if (srv->autoShutdownInhibitions == 0)
-        VIR_FORCE_CLOSE(srv->autoShutdownInhibitFd);
-
-    virObjectUnlock(srv);
-}
-
-
-
-static sig_atomic_t sigErrors = 0;
-static int sigLastErrno = 0;
-static int sigWrite = -1;
-
-static void
-virNetServerSignalHandler(int sig, siginfo_t * siginfo,
-                          void* context ATTRIBUTE_UNUSED)
-{
-    int origerrno;
-    int r;
-    siginfo_t tmp;
-
-    if (SA_SIGINFO)
-        tmp = *siginfo;
-    else
-        memset(&tmp, 0, sizeof(tmp));
-
-    /* set the sig num in the struct */
-    tmp.si_signo = sig;
-
-    origerrno = errno;
-    r = safewrite(sigWrite, &tmp, sizeof(tmp));
-    if (r == -1) {
-        sigErrors++;
-        sigLastErrno = errno;
-    }
-    errno = origerrno;
-}
-
-static void
-virNetServerSignalEvent(int watch,
-                        int fd ATTRIBUTE_UNUSED,
-                        int events ATTRIBUTE_UNUSED,
-                        void *opaque) {
-    virNetServerPtr srv = opaque;
-    siginfo_t siginfo;
-    size_t i;
-
-    virObjectLock(srv);
-
-    if (saferead(srv->sigread, &siginfo, sizeof(siginfo)) != sizeof(siginfo)) {
-        virReportSystemError(errno, "%s",
-                             _("Failed to read from signal pipe"));
-        virEventRemoveHandle(watch);
-        srv->sigwatch = -1;
-        goto cleanup;
-    }
-
-    for (i = 0; i < srv->nsignals; i++) {
-        if (siginfo.si_signo == srv->signals[i]->signum) {
-            virNetServerSignalFunc func = srv->signals[i]->func;
-            void *funcopaque = srv->signals[i]->opaque;
-            virObjectUnlock(srv);
-            func(srv, &siginfo, funcopaque);
-            return;
-        }
-    }
-
-    virReportError(VIR_ERR_INTERNAL_ERROR,
-                   _("Unexpected signal received: %d"), siginfo.si_signo);
-
-cleanup:
-    virObjectUnlock(srv);
-}
-
-static int virNetServerSignalSetup(virNetServerPtr srv)
-{
-    int fds[2] = { -1, -1 };
-
-    if (srv->sigwrite != -1)
-        return 0;
-
-    if (pipe2(fds, O_CLOEXEC|O_NONBLOCK) < 0) {
-        virReportSystemError(errno, "%s",
-                             _("Unable to create signal pipe"));
-        return -1;
-    }
-
-    if ((srv->sigwatch = virEventAddHandle(fds[0],
-                                           VIR_EVENT_HANDLE_READABLE,
-                                           virNetServerSignalEvent,
-                                           srv, NULL)) < 0) {
-        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
-                       _("Failed to add signal handle watch"));
-        goto error;
-    }
-
-    srv->sigread = fds[0];
-    srv->sigwrite = fds[1];
-    sigWrite = fds[1];
-
-    return 0;
-
-error:
-    VIR_FORCE_CLOSE(fds[0]);
-    VIR_FORCE_CLOSE(fds[1]);
-    return -1;
-}
-
-int virNetServerAddSignalHandler(virNetServerPtr srv,
-                                 int signum,
-                                 virNetServerSignalFunc func,
-                                 void *opaque)
-{
-    virNetServerSignalPtr sigdata = NULL;
-    struct sigaction sig_action;
-
-    virObjectLock(srv);
-
-    if (virNetServerSignalSetup(srv) < 0)
-        goto error;
-
-    if (VIR_EXPAND_N(srv->signals, srv->nsignals, 1) < 0)
-        goto error;
-
-    if (VIR_ALLOC(sigdata) < 0)
-        goto error;
-
-    sigdata->signum = signum;
-    sigdata->func = func;
-    sigdata->opaque = opaque;
-
-    memset(&sig_action, 0, sizeof(sig_action));
-    sig_action.sa_sigaction = virNetServerSignalHandler;
-    sig_action.sa_flags = SA_SIGINFO;
-    sigemptyset(&sig_action.sa_mask);
-
-    sigaction(signum, &sig_action, &sigdata->oldaction);
-
-    srv->signals[srv->nsignals-1] = sigdata;
-
-    virObjectUnlock(srv);
-    return 0;
-
-error:
-    VIR_FREE(sigdata);
-    virObjectUnlock(srv);
-    return -1;
 }
 
 
@@ -981,8 +632,10 @@ int virNetServerAddService(virNetServerPtr srv,
 
         if (!virNetServerMDNSAddEntry(srv->mdnsGroup,
                                       mdnsEntryName,
-                                      port))
+                                      port)) {
+            srv->nservices--;
             goto error;
+        }
     }
 
     srv->services[srv->nservices-1] = svc;
@@ -995,7 +648,7 @@ int virNetServerAddService(virNetServerPtr srv,
     virObjectUnlock(srv);
     return 0;
 
-error:
+ error:
     virObjectUnlock(srv);
     return -1;
 }
@@ -1013,7 +666,7 @@ int virNetServerAddProgram(virNetServerPtr srv,
     virObjectUnlock(srv);
     return 0;
 
-error:
+ error:
     virObjectUnlock(srv);
     return -1;
 }
@@ -1026,21 +679,6 @@ int virNetServerSetTLSContext(virNetServerPtr srv,
     return 0;
 }
 #endif
-
-
-static void virNetServerAutoShutdownTimer(int timerid ATTRIBUTE_UNUSED,
-                                          void *opaque) {
-    virNetServerPtr srv = opaque;
-
-    virObjectLock(srv);
-
-    if (!srv->autoShutdownInhibitions) {
-        VIR_DEBUG("Automatic shutdown triggered");
-        srv->quit = true;
-    }
-
-    virObjectUnlock(srv);
-}
 
 
 static void
@@ -1062,113 +700,33 @@ void virNetServerUpdateServices(virNetServerPtr srv,
     virObjectUnlock(srv);
 }
 
-
-void virNetServerRun(virNetServerPtr srv)
+/**
+ * virNetServerCheckLimits:
+ * @srv: server to check limits on
+ *
+ * Check if limits like max_clients or max_anonymous_clients
+ * are satisfied and if so, re-enable accepting new clients.
+ * The @srv must be locked when this function is called.
+ */
+static void
+virNetServerCheckLimits(virNetServerPtr srv)
 {
-    int timerid = -1;
-    bool timerActive = false;
-    size_t i;
-
-    virObjectLock(srv);
-
-    if (srv->mdns)
-        goto cleanup;
-
-    srv->quit = false;
-
-    if (srv->autoShutdownTimeout &&
-        (timerid = virEventAddTimeout(-1,
-                                      virNetServerAutoShutdownTimer,
-                                      srv, NULL)) < 0) {
-        virReportError(VIR_ERR_INTERNAL_ERROR, "%s",
-                       _("Failed to register shutdown timeout"));
-        goto cleanup;
+    /* Enable services if we can accept a new client.
+     * The new client can be accepted if both max_clients and
+     * max_anonymous_clients wouldn't get overcommitted by
+     * accepting it. */
+    VIR_DEBUG("Considering re-enabling services: "
+              "nclients=%zu nclients_max=%zu "
+              "nclients_unauth=%zu nclients_unauth_max=%zu",
+              srv->nclients, srv->nclients_max,
+              srv->nclients_unauth, srv->nclients_unauth_max);
+    if (srv->nclients < srv->nclients_max &&
+        (!srv->nclients_unauth_max ||
+         srv->nclients_unauth < srv->nclients_unauth_max)) {
+        /* Now it makes sense to accept() a new client. */
+        VIR_INFO("Re-enabling services");
+        virNetServerUpdateServicesLocked(srv, true);
     }
-
-    /* We are accepting connections now. Notify systemd
-     * so it can start dependent services. */
-    virSystemdNotifyStartup();
-
-    VIR_DEBUG("srv=%p quit=%d", srv, srv->quit);
-    while (!srv->quit) {
-        /* A shutdown timeout is specified, so check
-         * if any drivers have active state, if not
-         * shutdown after timeout seconds
-         */
-        if (srv->autoShutdownTimeout) {
-            if (timerActive) {
-                if (srv->clients) {
-                    VIR_DEBUG("Deactivating shutdown timer %d", timerid);
-                    virEventUpdateTimeout(timerid, -1);
-                    timerActive = false;
-                }
-            } else {
-                if (!srv->clients) {
-                    VIR_DEBUG("Activating shutdown timer %d", timerid);
-                    virEventUpdateTimeout(timerid,
-                                          srv->autoShutdownTimeout * 1000);
-                    timerActive = true;
-                }
-            }
-        }
-
-        virObjectUnlock(srv);
-        if (virEventRunDefaultImpl() < 0) {
-            virObjectLock(srv);
-            VIR_DEBUG("Loop iteration error, exiting");
-            break;
-        }
-        virObjectLock(srv);
-
-    reprocess:
-        for (i = 0; i < srv->nclients; i++) {
-            /* Coverity 5.3.0 couldn't see that srv->clients is non-NULL
-             * if srv->nclients is non-zero.  */
-            sa_assert(srv->clients);
-            if (virNetServerClientWantClose(srv->clients[i]))
-                virNetServerClientClose(srv->clients[i]);
-            if (virNetServerClientIsClosed(srv->clients[i])) {
-                virNetServerClientPtr client = srv->clients[i];
-                if (srv->nclients > 1) {
-                    memmove(srv->clients + i,
-                            srv->clients + i + 1,
-                            sizeof(*srv->clients) * (srv->nclients - (i + 1)));
-                    VIR_SHRINK_N(srv->clients, srv->nclients, 1);
-                } else {
-                    VIR_FREE(srv->clients);
-                    srv->nclients = 0;
-                }
-
-                /* Enable services if we can accept a new client.
-                 * The new client can be accepted if we are at the limit. */
-                if (srv->nclients == srv->nclients_max - 1) {
-                    /* Now it makes sense to accept() a new client. */
-                    VIR_DEBUG("Re-enabling services");
-                    virNetServerUpdateServicesLocked(srv, true);
-                }
-
-                virObjectUnlock(srv);
-                virObjectUnref(client);
-                virObjectLock(srv);
-
-                goto reprocess;
-            }
-        }
-    }
-
-cleanup:
-    virObjectUnlock(srv);
-}
-
-
-void virNetServerQuit(virNetServerPtr srv)
-{
-    virObjectLock(srv);
-
-    VIR_DEBUG("Quit requested %p", srv);
-    srv->quit = true;
-
-    virObjectUnlock(srv);
 }
 
 void virNetServerDispose(void *obj)
@@ -1176,22 +734,10 @@ void virNetServerDispose(void *obj)
     virNetServerPtr srv = obj;
     size_t i;
 
-    VIR_FORCE_CLOSE(srv->autoShutdownInhibitFd);
-
     for (i = 0; i < srv->nservices; i++)
         virNetServerServiceToggle(srv->services[i], false);
 
     virThreadPoolFree(srv->workers);
-
-    for (i = 0; i < srv->nsignals; i++) {
-        sigaction(srv->signals[i]->signum, &srv->signals[i]->oldaction, NULL);
-        VIR_FREE(srv->signals[i]);
-    }
-    VIR_FREE(srv->signals);
-    VIR_FORCE_CLOSE(srv->sigread);
-    VIR_FORCE_CLOSE(srv->sigwrite);
-    if (srv->sigwatch > 0)
-        virEventRemoveHandle(srv->sigwatch);
 
     for (i = 0; i < srv->nservices; i++)
         virObjectUnref(srv->services[i]);
@@ -1220,18 +766,98 @@ void virNetServerClose(virNetServerPtr srv)
 
     virObjectLock(srv);
 
-    for (i = 0; i < srv->nservices; i++) {
+    for (i = 0; i < srv->nservices; i++)
         virNetServerServiceClose(srv->services[i]);
+
+    virObjectUnlock(srv);
+}
+
+static inline size_t
+virNetServerTrackPendingAuthLocked(virNetServerPtr srv)
+{
+    return ++srv->nclients_unauth;
+}
+
+static inline size_t
+virNetServerTrackCompletedAuthLocked(virNetServerPtr srv)
+{
+    return --srv->nclients_unauth;
+}
+
+size_t virNetServerTrackPendingAuth(virNetServerPtr srv)
+{
+    size_t ret;
+    virObjectLock(srv);
+    ret = virNetServerTrackPendingAuthLocked(srv);
+    virObjectUnlock(srv);
+    return ret;
+}
+
+size_t virNetServerTrackCompletedAuth(virNetServerPtr srv)
+{
+    size_t ret;
+    virObjectLock(srv);
+    ret = virNetServerTrackCompletedAuthLocked(srv);
+    virNetServerCheckLimits(srv);
+    virObjectUnlock(srv);
+    return ret;
+}
+
+bool
+virNetServerHasClients(virNetServerPtr srv)
+{
+    bool ret;
+
+    virObjectLock(srv);
+    ret = !!srv->nclients;
+    virObjectUnlock(srv);
+
+    return ret;
+}
+
+void
+virNetServerProcessClients(virNetServerPtr srv)
+{
+    size_t i;
+
+    virObjectLock(srv);
+
+ reprocess:
+    for (i = 0; i < srv->nclients; i++) {
+        /* Coverity 5.3.0 couldn't see that srv->clients is non-NULL
+         * if srv->nclients is non-zero.  */
+        sa_assert(srv->clients);
+        if (virNetServerClientWantClose(srv->clients[i]))
+            virNetServerClientClose(srv->clients[i]);
+        if (virNetServerClientIsClosed(srv->clients[i])) {
+            virNetServerClientPtr client = srv->clients[i];
+
+            VIR_DELETE_ELEMENT(srv->clients, i, srv->nclients);
+
+            if (virNetServerClientNeedAuth(client))
+                virNetServerTrackCompletedAuthLocked(srv);
+
+            virNetServerCheckLimits(srv);
+
+            virObjectUnlock(srv);
+            virObjectUnref(client);
+            virObjectLock(srv);
+
+            goto reprocess;
+        }
     }
 
     virObjectUnlock(srv);
 }
 
-bool virNetServerKeepAliveRequired(virNetServerPtr srv)
+int
+virNetServerStart(virNetServerPtr srv)
 {
-    bool required;
-    virObjectLock(srv);
-    required = srv->keepaliveRequired;
-    virObjectUnlock(srv);
-    return required;
+    /*
+     * Do whatever needs to be done before starting.
+     */
+    if (!srv->mdns)
+        return 0;
+
+    return virNetServerMDNSStart(srv->mdns);
 }

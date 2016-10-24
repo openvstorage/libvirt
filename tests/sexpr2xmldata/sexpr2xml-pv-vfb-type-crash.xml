@@ -17,6 +17,7 @@
     <disk type='block' device='disk'>
       <driver name='phy'/>
       <source dev='/dev/vg_dom0test/test2vm'/>
+      <backingStore/>
       <target dev='xvda' bus='xen'/>
     </disk>
     <interface type='bridge'>
@@ -31,5 +32,6 @@
     <input type='mouse' bus='xen'/>
     <input type='keyboard' bus='xen'/>
     <graphics type='vnc' port='-1' autoport='yes'/>
+    <memballoon model='xen'/>
   </devices>
 </domain>

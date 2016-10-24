@@ -3,7 +3,7 @@
  * Description: This module implements the hash table and allocation and
  *              deallocation of domains and connections
  *
- * Copyright (C) 2005-2013 Red Hat, Inc.
+ * Copyright (C) 2005-2014 Red Hat, Inc.
  * Copyright (C) 2000 Bjorn Reese and Daniel Veillard.
  *
  * Author: Bjorn Reese <bjorn.reese@systematic.dk>
@@ -20,6 +20,9 @@
  */
 typedef struct _virHashTable virHashTable;
 typedef virHashTable *virHashTablePtr;
+
+typedef struct _virHashAtomic virHashAtomic;
+typedef virHashAtomic *virHashAtomicPtr;
 
 /*
  * function types:
@@ -101,6 +104,8 @@ typedef void (*virHashKeyFree)(void *name);
  */
 virHashTablePtr virHashCreate(ssize_t size,
                               virHashDataFree dataFree);
+virHashAtomicPtr virHashAtomicNew(ssize_t size,
+                                  virHashDataFree dataFree);
 virHashTablePtr virHashCreateFull(ssize_t size,
                                   virHashDataFree dataFree,
                                   virHashKeyCode keyCode,
@@ -119,6 +124,9 @@ int virHashAddEntry(virHashTablePtr table,
 int virHashUpdateEntry(virHashTablePtr table,
                        const void *name,
                        void *userdata);
+int virHashAtomicUpdate(virHashAtomicPtr table,
+                        const void *name,
+                        void *userdata);
 
 /*
  * Remove an entry from the hash table.
@@ -140,6 +148,8 @@ void *virHashLookup(const virHashTable *table, const void *name);
  * Retrieve & remove the userdata.
  */
 void *virHashSteal(virHashTablePtr table, const void *name);
+void *virHashAtomicSteal(virHashAtomicPtr table,
+                         const void *name);
 
 /*
  * Get the hash table's key/value pairs and have them optionally sorted.
@@ -183,5 +193,8 @@ ssize_t virHashForEach(virHashTablePtr table, virHashIterator iter, void *data);
 ssize_t virHashRemoveSet(virHashTablePtr table, virHashSearcher iter, const void *data);
 void *virHashSearch(const virHashTable *table, virHashSearcher iter,
                     const void *data);
+
+/* Convenience for when VIR_FREE(value) is sufficient as a data freer.  */
+void virHashValueFree(void *value, const void *name);
 
 #endif                          /* ! __VIR_HASH_H__ */

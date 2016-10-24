@@ -30,12 +30,14 @@
 
 #include <stdlib.h>
 
-static virEventAddHandleFunc addHandleImpl = NULL;
-static virEventUpdateHandleFunc updateHandleImpl = NULL;
-static virEventRemoveHandleFunc removeHandleImpl = NULL;
-static virEventAddTimeoutFunc addTimeoutImpl = NULL;
-static virEventUpdateTimeoutFunc updateTimeoutImpl = NULL;
-static virEventRemoveTimeoutFunc removeTimeoutImpl = NULL;
+VIR_LOG_INIT("util.event");
+
+static virEventAddHandleFunc addHandleImpl;
+static virEventUpdateHandleFunc updateHandleImpl;
+static virEventRemoveHandleFunc removeHandleImpl;
+static virEventAddTimeoutFunc addTimeoutImpl;
+static virEventUpdateTimeoutFunc updateTimeoutImpl;
+static virEventRemoveTimeoutFunc removeTimeoutImpl;
 
 
 /*****************************************************
@@ -202,6 +204,9 @@ virEventRemoveTimeout(int timer)
  * to integrate with the libglib2 event loop, or libevent
  * or the QT event loop.
  *
+ * For proper event handling, it is important that the event implementation
+ * is registered before a connection to the Hypervisor is opened.
+ *
  * Use of the virEventAddHandle() and similar APIs require that the
  * corresponding handler is registered.  Use of the
  * virConnectDomainEventRegisterAny() and similar APIs requires that
@@ -244,6 +249,9 @@ void virEventRegisterImpl(virEventAddHandleFunc addHandle,
  * that can be used by any client application which does
  * not have a need to integrate with an external event
  * loop impl.
+ *
+ * For proper event handling, it is important that the event implementation
+ * is registered before a connection to the Hypervisor is opened.
  *
  * Once registered, the application has to invoke virEventRunDefaultImpl() in
  * a loop to process events.  Failure to do so may result in connections being
@@ -289,7 +297,7 @@ int virEventRegisterDefaultImpl(void)
  * function, as it will block forever if there are no
  * registered events.
  *
- *   static bool quit = false;
+ *   static bool quit;
  *
  *   while (!quit) {
  *     if (virEventRunDefaultImpl() < 0)

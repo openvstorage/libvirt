@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2013 Red Hat, Inc.
+ * Copyright (C) 2009-2015 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -26,6 +26,7 @@
 #include "virsocketaddr.h"
 #include "virerror.h"
 #include "virstring.h"
+#include "viralloc.h"
 
 #include <netdb.h>
 
@@ -116,7 +117,8 @@ virSocketAddrParseInternal(struct addrinfo **res,
  *
  * Returns the length of the network address or -1 in case of error.
  */
-int virSocketAddrParse(virSocketAddrPtr addr, const char *val, int family) {
+int virSocketAddrParse(virSocketAddrPtr addr, const char *val, int family)
+{
     int len;
     struct addrinfo *res;
 
@@ -150,7 +152,8 @@ int virSocketAddrParse(virSocketAddrPtr addr, const char *val, int family) {
  * Returns the length of the network address or -1 in case of error.
  */
 int
-virSocketAddrParseIPv4(virSocketAddrPtr addr, const char *val) {
+virSocketAddrParseIPv4(virSocketAddrPtr addr, const char *val)
+{
     return virSocketAddrParse(addr, val, AF_INET);
 }
 
@@ -164,7 +167,8 @@ virSocketAddrParseIPv4(virSocketAddrPtr addr, const char *val) {
  * Returns the length of the network address or -1 in case of error.
  */
 int
-virSocketAddrParseIPv6(virSocketAddrPtr addr, const char *val) {
+virSocketAddrParseIPv6(virSocketAddrPtr addr, const char *val)
+{
     return virSocketAddrParse(addr, val, AF_INET6);
 }
 
@@ -340,7 +344,7 @@ virSocketAddrFormatFull(const virSocketAddr *addr,
 
     return addrstr;
 
-error:
+ error:
     return NULL;
 }
 
@@ -355,7 +359,8 @@ error:
  * Returns 0 on success, -1 on failure
  */
 int
-virSocketAddrSetPort(virSocketAddrPtr addr, int port) {
+virSocketAddrSetPort(virSocketAddrPtr addr, int port)
+{
     if (addr == NULL)
         return -1;
 
@@ -380,7 +385,8 @@ virSocketAddrSetPort(virSocketAddrPtr addr, int port) {
  * Returns -1 if @addr is invalid
  */
 int
-virSocketAddrGetPort(virSocketAddrPtr addr) {
+virSocketAddrGetPort(virSocketAddrPtr addr)
+{
     if (addr == NULL)
         return -1;
 
@@ -401,7 +407,8 @@ virSocketAddrGetPort(virSocketAddrPtr addr) {
  *
  * Returns 0 in case of success and -1 in case of error
  */
-int virSocketAddrIsNetmask(virSocketAddrPtr netmask) {
+int virSocketAddrIsNetmask(virSocketAddrPtr netmask)
+{
     int n = virSocketAddrGetNumNetmaskBits(netmask);
     if (n < 0)
         return -1;
@@ -424,6 +431,7 @@ virSocketAddrMask(const virSocketAddr *addr,
                   const virSocketAddr *netmask,
                   virSocketAddrPtr network)
 {
+    memset(network, 0, sizeof(*network));
     if (addr->data.stor.ss_family != netmask->data.stor.ss_family) {
         network->data.stor.ss_family = AF_UNSPEC;
         return -1;
@@ -497,6 +505,8 @@ virSocketAddrBroadcast(const virSocketAddr *addr,
                        const virSocketAddr *netmask,
                        virSocketAddrPtr broadcast)
 {
+    memset(broadcast, 0, sizeof(*broadcast));
+
     if ((addr->data.stor.ss_family != AF_INET) ||
         (netmask->data.stor.ss_family != AF_INET)) {
         broadcast->data.stor.ss_family = AF_UNSPEC;
@@ -549,7 +559,8 @@ virSocketAddrBroadcastByPrefix(const virSocketAddr *addr,
  *         -1 in case of error
  */
 int virSocketAddrCheckNetmask(virSocketAddrPtr addr1, virSocketAddrPtr addr2,
-                              virSocketAddrPtr netmask) {
+                              virSocketAddrPtr netmask)
+{
     size_t i;
 
     if ((addr1 == NULL) || (addr2 == NULL) || (netmask == NULL))
@@ -597,57 +608,195 @@ int virSocketAddrCheckNetmask(virSocketAddrPtr addr1, virSocketAddrPtr addr2,
  * virSocketGetRange:
  * @start: start of an IP range
  * @end: end of an IP range
+ * @network: IP address of network that should completely contain this range
+ * @prefix: prefix of the network
  *
- * Check the order of the 2 addresses and compute the range, this
- * will return 1 for identical addresses. Errors can come from incompatible
- * addresses type, excessive range (>= 2^^16) where the two addresses are
- * unrelated or inverted start and end.
+ * Check the order of the 2 addresses and compute the range, this will
+ * return 1 for identical addresses. Errors can come from incompatible
+ * addresses type, excessive range (>= 2^^16) where the two addresses
+ * are unrelated, inverted start and end, or a range that is not
+ * within network/prefix.
  *
  * Returns the size of the range or -1 in case of failure
  */
-int virSocketAddrGetRange(virSocketAddrPtr start, virSocketAddrPtr end) {
+int
+virSocketAddrGetRange(virSocketAddrPtr start, virSocketAddrPtr end,
+                      virSocketAddrPtr network, int prefix)
+{
     int ret = 0;
     size_t i;
+    virSocketAddr netmask;
+    char *startStr = NULL, *endStr = NULL, *netStr = NULL;
 
-    if ((start == NULL) || (end == NULL))
-        return -1;
-    if (start->data.stor.ss_family != end->data.stor.ss_family)
-        return -1;
+    if (start == NULL || end == NULL) {
+        virReportError(VIR_ERR_INTERNAL_ERROR,
+                       _("NULL argument - %p %p"), start, end);
+        goto error;
+    }
 
-    if (start->data.stor.ss_family == AF_INET) {
+    startStr = virSocketAddrFormat(start);
+    endStr = virSocketAddrFormat(end);
+    if (!startStr || !endStr)
+        goto error; /*error already reported */
+
+    if (VIR_SOCKET_ADDR_FAMILY(start) != VIR_SOCKET_ADDR_FAMILY(end)) {
+        virReportError(VIR_ERR_INTERNAL_ERROR,
+                       _("mismatch of address family in range %s - %s"),
+                       startStr, endStr);
+        goto error;
+    }
+
+    if (network) {
+        /* some checks can only be done if we have details of the
+         * network the range should be within
+         */
+        if (!(netStr = virSocketAddrFormat(network)))
+            goto error;
+
+        if (VIR_SOCKET_ADDR_FAMILY(start) != VIR_SOCKET_ADDR_FAMILY(network)) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("mismatch of address family in "
+                             "range %s - %s for network %s"),
+                           startStr, endStr, netStr);
+            goto error;
+        }
+
+        if (prefix < 0 ||
+            virSocketAddrPrefixToNetmask(prefix, &netmask,
+                                         VIR_SOCKET_ADDR_FAMILY(network)) < 0) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("bad prefix %d for network %s when "
+                             " checking range %s - %s"),
+                           prefix, netStr, startStr, endStr);
+            goto error;
+        }
+
+        /* both start and end of range need to be within network */
+        if (virSocketAddrCheckNetmask(start, network, &netmask) <= 0 ||
+            virSocketAddrCheckNetmask(end, network, &netmask) <= 0) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("range %s - %s is not entirely within "
+                             "network %s/%d"),
+                           startStr, endStr, netStr, prefix);
+            goto error;
+        }
+
+        if (VIR_SOCKET_ADDR_IS_FAMILY(start, AF_INET)) {
+            virSocketAddr netaddr, broadcast;
+
+            if (virSocketAddrBroadcast(network, &netmask, &broadcast) < 0 ||
+                virSocketAddrMask(network, &netmask, &netaddr) < 0) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("failed to construct broadcast or network "
+                                 "address for network %s/%d"),
+                               netStr, prefix);
+                goto error;
+            }
+
+            /* Don't allow the start of the range to be the network
+             * address (usually "...0") or the end of the range to be the
+             * broadcast address (usually "...255"). (the opposite also
+             * isn't allowed, but checking for that is implicit in all the
+             * other combined checks) (IPv6 doesn't have broadcast and
+             * network addresses, so this check is only done for IPv4)
+             */
+            if (virSocketAddrEqual(start, &netaddr)) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("start of range %s - %s in network %s/%d "
+                                 "is the network address"),
+                               startStr, endStr, netStr, prefix);
+                goto error;
+            }
+
+            if (virSocketAddrEqual(end, &broadcast)) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("end of range %s - %s in network %s/%d "
+                                 "is the broadcast address"),
+                               startStr, endStr, netStr, prefix);
+                goto error;
+            }
+        }
+    }
+
+    if (VIR_SOCKET_ADDR_IS_FAMILY(start, AF_INET)) {
         virSocketAddrIPv4 t1, t2;
 
-        if ((virSocketAddrGetIPv4Addr(start, &t1) < 0) ||
-            (virSocketAddrGetIPv4Addr(end, &t2) < 0))
-            return -1;
+        if (virSocketAddrGetIPv4Addr(start, &t1) < 0 ||
+            virSocketAddrGetIPv4Addr(end, &t2) < 0) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("failed to get IPv4 address "
+                             "for start or end of range %s - %s"),
+                           startStr, endStr);
+            goto error;
+        }
 
+        /* legacy check that everything except the last two bytes
+         * are the same
+         */
         for (i = 0; i < 2; i++) {
-            if (t1[i] != t2[i])
-                return -1;
+            if (t1[i] != t2[i]) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("range %s - %s is too large (> 65535)"),
+                           startStr, endStr);
+            goto error;
+            }
         }
         ret = (t2[2] - t1[2]) * 256 + (t2[3] - t1[3]);
-        if (ret < 0)
-            return -1;
+        if (ret < 0) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("range %s - %s is reversed "),
+                           startStr, endStr);
+            goto error;
+        }
         ret++;
-    } else if (start->data.stor.ss_family == AF_INET6) {
+    } else if (VIR_SOCKET_ADDR_IS_FAMILY(start, AF_INET6)) {
         virSocketAddrIPv6 t1, t2;
 
-        if ((virSocketAddrGetIPv6Addr(start, &t1) < 0) ||
-            (virSocketAddrGetIPv6Addr(end, &t2) < 0))
-            return -1;
+        if (virSocketAddrGetIPv6Addr(start, &t1) < 0 ||
+            virSocketAddrGetIPv6Addr(end, &t2) < 0) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("failed to get IPv6 address "
+                             "for start or end of range %s - %s"),
+                           startStr, endStr);
+            goto error;
+        }
 
+        /* legacy check that everything except the last two bytes are
+         * the same
+         */
         for (i = 0; i < 7; i++) {
-            if (t1[i] != t2[i])
-                return -1;
+            if (t1[i] != t2[i]) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                               _("range %s - %s is too large (> 65535)"),
+                               startStr, endStr);
+                goto error;
+            }
         }
         ret = t2[7] - t1[7];
-        if (ret < 0)
-            return -1;
+        if (ret < 0) {
+            virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("range %s - %s start larger than end"),
+                           startStr, endStr);
+            goto error;
+        }
         ret++;
     } else {
-        return -1;
+        virReportError(VIR_ERR_INTERNAL_ERROR,
+                       _("unsupported address family "
+                         "for range %s - %s, must be ipv4 or ipv6"),
+                       startStr, endStr);
+        goto error;
     }
+
+ cleanup:
+    VIR_FREE(startStr);
+    VIR_FREE(endStr);
+    VIR_FREE(netStr);
     return ret;
+
+ error:
+    ret = -1;
+    goto cleanup;
 }
 
 
@@ -684,9 +833,9 @@ int virSocketAddrGetNumNetmaskBits(const virSocketAddr *netmask)
         j = i << 3;
         while (j < (8 * 4)) {
             bit = 1 << (7 - (j & 7));
-            if ((tm[j >> 3] & bit)) {
+            if ((tm[j >> 3] & bit))
                 c++;
-            } else
+            else
                 break;
             j++;
         }
@@ -718,9 +867,9 @@ int virSocketAddrGetNumNetmaskBits(const virSocketAddr *netmask)
         j = i << 4;
         while (j < (16 * 8)) {
             bit = 1 << (15 - (j & 0xf));
-            if ((tm[j >> 4] & bit)) {
+            if ((tm[j >> 4] & bit))
                 c++;
-            } else
+            else
                 break;
             j++;
         }
@@ -793,7 +942,7 @@ virSocketAddrPrefixToNetmask(unsigned int prefix,
         result = 0;
     }
 
-error:
+ error:
     return result;
  }
 
@@ -823,6 +972,12 @@ virSocketAddrGetIpPrefix(const virSocketAddr *address,
          */
         unsigned char octet
             = ntohl(address->data.inet4.sin_addr.s_addr) >> 24;
+
+        /* If address is 0.0.0.0, we surely want to have 0 prefix for
+         * the default route. */
+        if (address->data.inet4.sin_addr.s_addr == 0)
+            return 0;
+
         if ((octet & 0x80) == 0) {
             /* Class A network */
             return 8;
@@ -835,6 +990,8 @@ virSocketAddrGetIpPrefix(const virSocketAddr *address,
         }
         return -1;
     } else if (VIR_SOCKET_ADDR_IS_FAMILY(address, AF_INET6)) {
+        if (virSocketAddrIsWildcard(address))
+            return 0;
         return 64;
     }
 
@@ -847,26 +1004,53 @@ virSocketAddrGetIpPrefix(const virSocketAddr *address,
 }
 
 /**
- * virSocketAddrIsNumeric:
+ * virSocketAddrNumericFamily:
  * @address: address to check
  *
- * Check if passed address is an IP address in numeric format. For
- * instance, for 0.0.0.0 true is returned, for 'examplehost"
- * false is returned.
+ * Check if passed address is an IP address in numeric format.
  *
- * Returns: true if @address is an IP address,
- *          false otherwise
+ * Returns: AF_INET or AF_INET6 if @address is an numeric IP address,
+ *          -1 otherwise.
  */
-bool
-virSocketAddrIsNumeric(const char *address)
+int
+virSocketAddrNumericFamily(const char *address)
 {
     struct addrinfo *res;
     unsigned short family;
 
     if (virSocketAddrParseInternal(&res, address, AF_UNSPEC, false) < 0)
-        return false;
+        return -1;
 
     family = res->ai_addr->sa_family;
     freeaddrinfo(res);
-    return family == AF_INET || family == AF_INET6;
+    return family;
+}
+
+/**
+ * virSocketAddrIsNumericLocalhost:
+ * @address: address to check
+ *
+ * Check if passed address is a numeric 'localhost' address.
+ *
+ * Returns: true if @address is a numeric 'localhost' address,
+ *          false otherwise
+ */
+bool
+virSocketAddrIsNumericLocalhost(const char *addr)
+{
+    virSocketAddr res;
+    struct in_addr tmp = { .s_addr = htonl(INADDR_LOOPBACK) };
+
+    if (virSocketAddrParse(&res, addr, AF_UNSPEC) < 0)
+        return false;
+
+    switch (res.data.stor.ss_family) {
+    case AF_INET:
+        return memcmp(&res.data.inet4.sin_addr.s_addr, &tmp.s_addr,
+                     sizeof(res.data.inet4.sin_addr.s_addr)) == 0;
+    case AF_INET6:
+        return IN6_IS_ADDR_LOOPBACK(&res.data.inet6.sin6_addr);
+    }
+
+    return false;
 }

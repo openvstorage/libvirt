@@ -21,7 +21,20 @@
 #include <config.h>
 
 #include "internal.h"
+#include "virnuma.h"
+#include "virmock.h"
+#include "virutil.h"
+#include "virstring.h"
+#include "virtpm.h"
 #include <time.h>
+#include <unistd.h>
+
+#define VIR_FROM_THIS VIR_FROM_NONE
+
+long virGetSystemPageSize(void)
+{
+    return 4096;
+}
 
 time_t time(time_t *t)
 {
@@ -29,4 +42,45 @@ time_t time(time_t *t)
     if (t)
         *t = ret;
     return ret;
+}
+
+int
+virNumaGetMaxNode(void)
+{
+   const int maxnodesNum = 7;
+
+   return maxnodesNum;
+}
+
+#if WITH_NUMACTL && HAVE_NUMA_BITMASK_ISBITSET
+/*
+ * In case libvirt is compiled with full NUMA support, we need to mock
+ * this function in order to fake what numa nodes are available.
+ */
+bool
+virNumaNodeIsAvailable(int node)
+{
+    return node >= 0 && node <= virNumaGetMaxNode();
+}
+#endif /* WITH_NUMACTL && HAVE_NUMA_BITMASK_ISBITSET */
+
+char *
+virTPMCreateCancelPath(const char *devpath)
+{
+    char *path;
+    (void)devpath;
+
+    ignore_value(VIR_STRDUP(path, "/sys/class/misc/tpm0/device/cancel"));
+
+    return path;
+}
+
+/**
+ * Large values for memory would fail on 32 bit systems, despite having
+ * variables that support it.
+ */
+unsigned long long
+virMemoryMaxValue(bool capped ATTRIBUTE_UNUSED)
+{
+    return LLONG_MAX;
 }

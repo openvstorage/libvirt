@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007-2013 Red Hat, Inc.
+ * Copyright (C) 2007-2015 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -25,16 +25,54 @@
 
 # include <net/if.h>
 
+# include "virbitmap.h"
 # include "virsocketaddr.h"
 # include "virnetlink.h"
 # include "virmacaddr.h"
 # include "virpci.h"
+# include "device_conf.h"
 
 # ifdef HAVE_STRUCT_IFREQ
 typedef struct ifreq virIfreq;
 # else
 typedef void virIfreq;
 # endif
+
+typedef enum {
+   VIR_NETDEV_RX_FILTER_MODE_NONE = 0,
+   VIR_NETDEV_RX_FILTER_MODE_NORMAL,
+   VIR_NETDEV_RX_FILTER_MODE_ALL,
+
+   VIR_NETDEV_RX_FILTER_MODE_LAST
+} virNetDevRxFilterMode;
+VIR_ENUM_DECL(virNetDevRxFilterMode)
+
+typedef struct _virNetDevRxFilter virNetDevRxFilter;
+typedef virNetDevRxFilter *virNetDevRxFilterPtr;
+struct _virNetDevRxFilter {
+    char *name; /* the alias used by qemu, *not* name used by guest */
+    virMacAddr mac;
+    bool promiscuous;
+    bool broadcastAllowed;
+
+    struct {
+        int mode; /* enum virNetDevRxFilterMode */
+        bool overflow;
+        virMacAddrPtr table;
+        size_t nTable;
+    } unicast;
+    struct {
+        int mode; /* enum virNetDevRxFilterMode */
+        bool overflow;
+        virMacAddrPtr table;
+        size_t nTable;
+    } multicast;
+    struct {
+        int mode; /* enum virNetDevRxFilterMode */
+        unsigned int *table;
+        size_t nTable;
+    } vlan;
+};
 
 int virNetDevSetupControl(const char *ifname,
                           virIfreq *ifr)
@@ -46,27 +84,29 @@ int virNetDevExists(const char *brname)
 int virNetDevSetOnline(const char *ifname,
                        bool online)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
-int virNetDevIsOnline(const char *ifname,
+int virNetDevGetOnline(const char *ifname,
                       bool *online)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
 
-int virNetDevSetIPv4Address(const char *ifname,
-                            virSocketAddr *addr,
-                            unsigned int prefix)
+int virNetDevSetIPAddress(const char *ifname,
+                          virSocketAddr *addr,
+                          unsigned int prefix)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
 int virNetDevAddRoute(const char *ifname,
                       virSocketAddrPtr addr,
                       unsigned int prefix,
                       virSocketAddrPtr gateway,
                       unsigned int metric)
-    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_NONNULL(4)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(4)
     ATTRIBUTE_RETURN_CHECK;
-int virNetDevClearIPv4Address(const char *ifname,
-                              virSocketAddr *addr,
-                              unsigned int prefix)
+int virNetDevClearIPAddress(const char *ifname,
+                            virSocketAddr *addr,
+                            unsigned int prefix)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
-int virNetDevGetIPv4Address(const char *ifname, virSocketAddrPtr addr)
+int virNetDevGetIPAddress(const char *ifname, virSocketAddrPtr addr)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
+int virNetDevWaitDadFinish(virSocketAddrPtr *addrs, size_t count)
+    ATTRIBUTE_NONNULL(1);
 
 
 int virNetDevSetMAC(const char *ifname,
@@ -85,7 +125,6 @@ int virNetDevReplaceMacAddress(const char *linkdev,
 int virNetDevRestoreMacAddress(const char *linkdev,
                                const char *stateDir)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
-
 
 int virNetDevSetMTU(const char *ifname,
                     int mtu)
@@ -124,25 +163,70 @@ int virNetDevGetPhysicalFunction(const char *ifname, char **pfname)
 int virNetDevGetVirtualFunctions(const char *pfname,
                                  char ***vfname,
                                  virPCIDeviceAddressPtr **virt_fns,
-                                 size_t *n_vfname)
+                                 size_t *n_vfname,
+                                 unsigned int *max_vfs)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_NONNULL(3)
-    ATTRIBUTE_NONNULL(4) ATTRIBUTE_RETURN_CHECK;
+    ATTRIBUTE_NONNULL(4) ATTRIBUTE_NONNULL(5) ATTRIBUTE_RETURN_CHECK;
 
 int virNetDevLinkDump(const char *ifname, int ifindex,
-                      struct nlattr **tb,
+                      void **nlData, struct nlattr **tb,
                       uint32_t src_pid, uint32_t dst_pid)
     ATTRIBUTE_RETURN_CHECK;
 
-int virNetDevReplaceNetConfig(char *linkdev, int vf,
+int virNetDevReplaceNetConfig(const char *linkdev, int vf,
                               const virMacAddr *macaddress, int vlanid,
-                              char *stateDir)
+                              const char *stateDir)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(3) ATTRIBUTE_NONNULL(5);
 
-int virNetDevRestoreNetConfig(char *linkdev, int vf, char *stateDir)
+int virNetDevRestoreNetConfig(const char *linkdev, int vf, const char *stateDir)
     ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(3);
 
 int virNetDevGetVirtualFunctionInfo(const char *vfname, char **pfname,
                                     int *vf)
     ATTRIBUTE_NONNULL(1);
 
+int virNetDevGetFeatures(const char *ifname,
+                         virBitmapPtr *out)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
+
+int virNetDevGetLinkInfo(const char *ifname,
+                         virInterfaceLinkPtr lnk)
+    ATTRIBUTE_NONNULL(1);
+
+virNetDevRxFilterPtr virNetDevRxFilterNew(void)
+   ATTRIBUTE_RETURN_CHECK;
+void virNetDevRxFilterFree(virNetDevRxFilterPtr filter);
+int virNetDevGetRxFilter(const char *ifname,
+                         virNetDevRxFilterPtr *filter)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
+
+int virNetDevAddMulti(const char *ifname,
+                      virMacAddrPtr macaddr)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
+int virNetDevDelMulti(const char *ifname,
+                      virMacAddrPtr macaddr)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
+
+int virNetDevSetPromiscuous(const char *ifname, bool promiscuous)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
+int virNetDevGetPromiscuous(const char *ifname, bool *promiscuous)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
+
+int virNetDevSetRcvMulti(const char *ifname, bool receive)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
+int virNetDevGetRcvMulti(const char *ifname, bool *receive)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
+
+int virNetDevSetRcvAllMulti(const char *ifname, bool receive)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_RETURN_CHECK;
+int virNetDevGetRcvAllMulti(const char *ifname, bool *receive)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_RETURN_CHECK;
+
+# define SYSFS_NET_DIR "/sys/class/net/"
+# define SYSFS_INFINIBAND_DIR "/sys/class/infiniband/"
+int virNetDevSysfsFile(char **pf_sysfs_device_link,
+                       const char *ifname,
+                       const char *file)
+    ATTRIBUTE_NONNULL(1) ATTRIBUTE_NONNULL(2) ATTRIBUTE_NONNULL(3)
+    ATTRIBUTE_RETURN_CHECK;
 #endif /* __VIR_NETDEV_H__ */

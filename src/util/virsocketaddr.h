@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2013 Red Hat, Inc.
+ * Copyright (C) 2009-2013, 2015 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -54,6 +54,10 @@ typedef struct {
 # define VIR_SOCKET_ADDR_FAMILY(s)              \
     ((s)->data.sa.sa_family)
 
+# define VIR_SOCKET_ADDR_DEFAULT_PREFIX 24
+# define VIR_SOCKET_ADDR_IPV4_ALL "0.0.0.0"
+# define VIR_SOCKET_ADDR_IPV6_ALL "::"
+
 typedef virSocketAddr *virSocketAddrPtr;
 
 typedef struct _virSocketAddrRange virSocketAddrRange;
@@ -92,7 +96,9 @@ int virSocketAddrSetPort(virSocketAddrPtr addr, int port);
 int virSocketAddrGetPort(virSocketAddrPtr addr);
 
 int virSocketAddrGetRange(virSocketAddrPtr start,
-                          virSocketAddrPtr end);
+                          virSocketAddrPtr end,
+                          virSocketAddrPtr network,
+                          int prefix);
 
 int virSocketAddrIsNetmask(virSocketAddrPtr netmask);
 
@@ -125,5 +131,7 @@ bool virSocketAddrIsPrivate(const virSocketAddr *addr);
 
 bool virSocketAddrIsWildcard(const virSocketAddr *addr);
 
-bool virSocketAddrIsNumeric(const char *address);
+int virSocketAddrNumericFamily(const char *address);
+
+bool virSocketAddrIsNumericLocalhost(const char *addr);
 #endif /* __VIR_SOCKETADDR_H__ */

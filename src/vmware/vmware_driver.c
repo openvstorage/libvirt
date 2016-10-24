@@ -1,6 +1,6 @@
 /*---------------------------------------------------------------------------*/
 /*
- * Copyright (C) 2011-2012 Red Hat, Inc.
+ * Copyright (C) 2011-2015 Red Hat, Inc.
  * Copyright 2010, diateam (www.diateam.net)
  * Copyright (C) 2013. Doug Goldstein <cardoe@cardoe.com>
  *
@@ -82,13 +82,41 @@ vmwareDataFreeFunc(void *data)
     VIR_FREE(dom);
 }
 
+static int
+vmwareDomainDefPostParse(virDomainDefPtr def,
+                         virCapsPtr caps ATTRIBUTE_UNUSED,
+                         unsigned int parseFlags ATTRIBUTE_UNUSED,
+                         void *opaque ATTRIBUTE_UNUSED)
+{
+    /* memory hotplug tunables are not supported by this driver */
+    if (virDomainDefCheckUnsupportedMemoryHotplug(def) < 0)
+        return -1;
+
+    return 0;
+}
+
+static int
+vmwareDomainDeviceDefPostParse(virDomainDeviceDefPtr dev ATTRIBUTE_UNUSED,
+                               const virDomainDef *def ATTRIBUTE_UNUSED,
+                               virCapsPtr caps ATTRIBUTE_UNUSED,
+                               unsigned int parseFlags ATTRIBUTE_UNUSED,
+                               void *opaque ATTRIBUTE_UNUSED)
+{
+    return 0;
+}
+
+virDomainDefParserConfig vmwareDomainDefParserConfig = {
+    .devicesPostParseCallback = vmwareDomainDeviceDefPostParse,
+    .domainPostParseCallback = vmwareDomainDefPostParse,
+};
+
 static virDomainXMLOptionPtr
 vmwareDomainXMLConfigInit(void)
 {
     virDomainXMLPrivateDataCallbacks priv = { .alloc = vmwareDataAllocFunc,
                                               .free = vmwareDataFreeFunc };
 
-    return virDomainXMLOptionNew(NULL, &priv, NULL);
+    return virDomainXMLOptionNew(&vmwareDomainDefParserConfig, &priv, NULL);
 }
 
 static virDrvOpenStatus
@@ -185,7 +213,7 @@ vmwareConnectOpen(virConnectPtr conn,
 
     return VIR_DRV_OPEN_SUCCESS;
 
-  cleanup:
+ cleanup:
     vmwareFreeDriver(driver);
     return VIR_DRV_OPEN_ERROR;
 };
@@ -271,7 +299,7 @@ vmwareUpdateVMStatus(struct vmware_driver *driver, virDomainObjPtr vm)
 
     ret = 0;
 
-cleanup:
+ cleanup:
     virCommandFree(cmd);
     VIR_FREE(outbuf);
     VIR_FREE(vmxAbsolutePath);
@@ -291,9 +319,8 @@ vmwareStopVM(struct vmware_driver *driver,
     vmwareSetSentinal(cmd, vmwareDriverTypeToString(driver->type));
     vmwareSetSentinal(cmd, ((vmwareDomainPtr) vm->privateData)->vmxPath);
 
-    if (virRun(cmd, NULL) < 0) {
+    if (virRun(cmd, NULL) < 0)
         return -1;
-    }
 
     vm->def->id = -1;
     virDomainObjSetState(vm, VIR_DOMAIN_SHUTOFF, reason);
@@ -323,9 +350,8 @@ vmwareStartVM(struct vmware_driver *driver, virDomainObjPtr vm)
     else
         vmwareSetSentinal(cmd, NULL);
 
-    if (virRun(cmd, NULL) < 0) {
+    if (virRun(cmd, NULL) < 0)
         return -1;
-    }
 
     if ((vm->def->id = vmwareExtractPid(vmxPath)) < 0) {
         vmwareStopVM(driver, vm, VIR_DOMAIN_SHUTOFF_FAILED);
@@ -338,7 +364,7 @@ vmwareStartVM(struct vmware_driver *driver, virDomainObjPtr vm)
 }
 
 static virDomainPtr
-vmwareDomainDefineXML(virConnectPtr conn, const char *xml)
+vmwareDomainDefineXMLFlags(virConnectPtr conn, const char *xml, unsigned int flags)
 {
     struct vmware_driver *driver = conn->privateData;
     virDomainDefPtr vmdef = NULL;
@@ -350,13 +376,21 @@ vmwareDomainDefineXML(virConnectPtr conn, const char *xml)
     char *vmxPath = NULL;
     vmwareDomainPtr pDomain = NULL;
     virVMXContext ctx;
+    unsigned int parse_flags = VIR_DOMAIN_DEF_PARSE_INACTIVE;
 
+    virCheckFlags(VIR_DOMAIN_DEFINE_VALIDATE, NULL);
+
+    if (flags & VIR_DOMAIN_DEFINE_VALIDATE)
+        parse_flags |= VIR_DOMAIN_DEF_PARSE_VALIDATE;
+
+    ctx.parseFileName = NULL;
     ctx.formatFileName = vmwareCopyVMXFileName;
+    ctx.autodetectSCSIControllerModel = NULL;
+    ctx.datacenterPath = NULL;
 
     vmwareDriverLock(driver);
     if ((vmdef = virDomainDefParseString(xml, driver->caps, driver->xmlopt,
-                                         1 << VIR_DOMAIN_VIRT_VMWARE,
-                                         VIR_DOMAIN_XML_INACTIVE)) == NULL)
+                                         parse_flags)) == NULL)
         goto cleanup;
 
     /* generate vmx file */
@@ -395,7 +429,7 @@ vmwareDomainDefineXML(virConnectPtr conn, const char *xml)
     if (dom)
         dom->id = -1;
 
-  cleanup:
+ cleanup:
     virDomainDefFree(vmdef);
     VIR_FREE(vmx);
     VIR_FREE(directoryName);
@@ -405,6 +439,12 @@ vmwareDomainDefineXML(virConnectPtr conn, const char *xml)
         virObjectUnlock(vm);
     vmwareDriverUnlock(driver);
     return dom;
+}
+
+static virDomainPtr
+vmwareDomainDefineXML(virConnectPtr conn, const char *xml)
+{
+    return vmwareDomainDefineXMLFlags(conn, xml, 0);
 }
 
 static int
@@ -445,7 +485,7 @@ vmwareDomainShutdownFlags(virDomainPtr dom,
     }
 
     ret = 0;
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     vmwareDriverUnlock(driver);
@@ -514,7 +554,7 @@ vmwareDomainSuspend(virDomainPtr dom)
     virDomainObjSetState(vm, VIR_DOMAIN_PAUSED, VIR_DOMAIN_PAUSED_USER);
     ret = 0;
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return ret;
@@ -563,7 +603,7 @@ vmwareDomainResume(virDomainPtr dom)
     virDomainObjSetState(vm, VIR_DOMAIN_RUNNING, VIR_DOMAIN_RUNNING_UNPAUSED);
     ret = 0;
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return ret;
@@ -611,7 +651,7 @@ vmwareDomainReboot(virDomainPtr dom, unsigned int flags)
 
     ret = 0;
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return ret;
@@ -629,16 +669,22 @@ vmwareDomainCreateXML(virConnectPtr conn, const char *xml,
     char *vmxPath = NULL;
     vmwareDomainPtr pDomain = NULL;
     virVMXContext ctx;
+    unsigned int parse_flags = VIR_DOMAIN_DEF_PARSE_INACTIVE;
 
-    virCheckFlags(0, NULL);
+    virCheckFlags(VIR_DOMAIN_START_VALIDATE, NULL);
 
+    if (flags & VIR_DOMAIN_START_VALIDATE)
+        parse_flags |= VIR_DOMAIN_DEF_PARSE_VALIDATE;
+
+    ctx.parseFileName = NULL;
     ctx.formatFileName = vmwareCopyVMXFileName;
+    ctx.autodetectSCSIControllerModel = NULL;
+    ctx.datacenterPath = NULL;
 
     vmwareDriverLock(driver);
 
     if ((vmdef = virDomainDefParseString(xml, driver->caps, driver->xmlopt,
-                                         1 << VIR_DOMAIN_VIRT_VMWARE,
-                                         VIR_DOMAIN_XML_INACTIVE)) == NULL)
+                                         parse_flags)) == NULL)
         goto cleanup;
 
     /* generate vmx file */
@@ -660,6 +706,7 @@ vmwareDomainCreateXML(virConnectPtr conn, const char *xml,
     if (!(vm = virDomainObjListAdd(driver->domains,
                                    vmdef,
                                    driver->xmlopt,
+                                   VIR_DOMAIN_OBJ_LIST_ADD_LIVE |
                                    VIR_DOMAIN_OBJ_LIST_ADD_CHECK_LIVE,
                                    NULL)))
         goto cleanup;
@@ -672,8 +719,10 @@ vmwareDomainCreateXML(virConnectPtr conn, const char *xml,
     vmdef = NULL;
 
     if (vmwareStartVM(driver, vm) < 0) {
-        virDomainObjListRemove(driver->domains, vm);
-        vm = NULL;
+        if (!vm->persistent) {
+            virDomainObjListRemove(driver->domains, vm);
+            vm = NULL;
+        }
         goto cleanup;
     }
 
@@ -681,7 +730,7 @@ vmwareDomainCreateXML(virConnectPtr conn, const char *xml,
     if (dom)
         dom->id = vm->def->id;
 
-cleanup:
+ cleanup:
     virDomainDefFree(vmdef);
     VIR_FREE(vmx);
     VIR_FREE(vmxPath);
@@ -722,7 +771,7 @@ vmwareDomainCreateWithFlags(virDomainPtr dom,
 
     ret = vmwareStartVM(driver, vm);
 
-cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     vmwareDriverUnlock(driver);
@@ -775,7 +824,7 @@ vmwareDomainUndefineFlags(virDomainPtr dom,
 
     ret = 0;
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     vmwareDriverUnlock(driver);
@@ -808,7 +857,7 @@ vmwareDomainLookupByID(virConnectPtr conn, int id)
     if (dom)
         dom->id = vm->def->id;
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return dom;
@@ -830,9 +879,9 @@ vmwareDomainGetOSType(virDomainPtr dom)
         goto cleanup;
     }
 
-    ignore_value(VIR_STRDUP(ret, vm->def->os.type));
+    ignore_value(VIR_STRDUP(ret, virDomainOSTypeToString(vm->def->os.type)));
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return ret;
@@ -859,7 +908,7 @@ vmwareDomainLookupByUUID(virConnectPtr conn, const unsigned char *uuid)
     if (dom)
         dom->id = vm->def->id;
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return dom;
@@ -885,7 +934,7 @@ vmwareDomainLookupByName(virConnectPtr conn, const char *name)
     if (dom)
         dom->id = vm->def->id;
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return dom;
@@ -907,7 +956,7 @@ vmwareDomainIsActive(virDomainPtr dom)
     }
     ret = virDomainObjIsActive(obj);
 
-  cleanup:
+ cleanup:
     if (obj)
         virObjectUnlock(obj);
     return ret;
@@ -930,7 +979,7 @@ vmwareDomainIsPersistent(virDomainPtr dom)
     }
     ret = obj->persistent;
 
-  cleanup:
+ cleanup:
     if (obj)
         virObjectUnlock(obj);
     return ret;
@@ -956,9 +1005,10 @@ vmwareDomainGetXMLDesc(virDomainPtr dom, unsigned int flags)
         goto cleanup;
     }
 
-    ret = virDomainDefFormat(vm->def, flags);
+    ret = virDomainDefFormat(vm->def,
+                             virDomainDefFormatConvertXMLFlags(flags));
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return ret;
@@ -983,11 +1033,14 @@ vmwareConnectDomainXMLFromNative(virConnectPtr conn, const char *nativeFormat,
     }
 
     ctx.parseFileName = vmwareCopyVMXFileName;
+    ctx.formatFileName = NULL;
+    ctx.autodetectSCSIControllerModel = NULL;
+    ctx.datacenterPath = NULL;
 
-    def = virVMXParseConfig(&ctx, driver->xmlopt, nativeConfig);
+    def = virVMXParseConfig(&ctx, driver->xmlopt, driver->caps, nativeConfig);
 
     if (def != NULL)
-        xml = virDomainDefFormat(def, VIR_DOMAIN_XML_INACTIVE);
+        xml = virDomainDefFormat(def, VIR_DOMAIN_DEF_FORMAT_INACTIVE);
 
     virDomainDefFree(def);
 
@@ -1089,12 +1142,12 @@ vmwareDomainGetInfo(virDomainPtr dom, virDomainInfoPtr info)
 
     info->state = virDomainObjGetState(vm, NULL);
     info->cpuTime = 0;
-    info->maxMem = vm->def->mem.max_balloon;
+    info->maxMem = virDomainDefGetMemoryActual(vm->def);
     info->memory = vm->def->mem.cur_balloon;
-    info->nrVirtCpu = vm->def->vcpus;
+    info->nrVirtCpu = virDomainDefGetVcpus(vm->def);
     ret = 0;
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return ret;
@@ -1128,7 +1181,7 @@ vmwareDomainGetState(virDomainPtr dom,
     *state = virDomainObjGetState(vm, reason);
     ret = 0;
 
-  cleanup:
+ cleanup:
     if (vm)
         virObjectUnlock(vm);
     return ret;
@@ -1158,10 +1211,33 @@ vmwareConnectListAllDomains(virConnectPtr conn,
     return ret;
 }
 
+static int
+vmwareDomainHasManagedSaveImage(virDomainPtr dom, unsigned int flags)
+{
+    struct vmware_driver *driver = dom->conn->privateData;
+    virDomainObjPtr obj;
+    int ret = -1;
+
+    virCheckFlags(0, -1);
+
+    vmwareDriverLock(driver);
+    obj = virDomainObjListFindByUUID(driver->domains, dom->uuid);
+    vmwareDriverUnlock(driver);
+    if (!obj) {
+        virReportError(VIR_ERR_NO_DOMAIN, NULL);
+        goto cleanup;
+    }
+    ret = 0;
+
+ cleanup:
+    if (obj)
+        virObjectUnlock(obj);
+    return ret;
+}
 
 
-static virDriver vmwareDriver = {
-    .no = VIR_DRV_VMWARE,
+
+static virHypervisorDriver vmwareHypervisorDriver = {
     .name = "VMWARE",
     .connectOpen = vmwareConnectOpen, /* 0.8.7 */
     .connectClose = vmwareConnectClose, /* 0.8.7 */
@@ -1191,17 +1267,22 @@ static virDriver vmwareDriver = {
     .domainCreate = vmwareDomainCreate, /* 0.8.7 */
     .domainCreateWithFlags = vmwareDomainCreateWithFlags, /* 0.8.7 */
     .domainDefineXML = vmwareDomainDefineXML, /* 0.8.7 */
+    .domainDefineXMLFlags = vmwareDomainDefineXMLFlags, /* 1.2.12 */
     .domainUndefine = vmwareDomainUndefine, /* 0.8.7 */
     .domainUndefineFlags = vmwareDomainUndefineFlags, /* 0.9.4 */
     .domainIsActive = vmwareDomainIsActive, /* 0.8.7 */
     .domainIsPersistent = vmwareDomainIsPersistent, /* 0.8.7 */
     .connectIsAlive = vmwareConnectIsAlive, /* 0.9.8 */
+    .domainHasManagedSaveImage = vmwareDomainHasManagedSaveImage, /* 1.2.13 */
+};
+
+static virConnectDriver vmwareConnectDriver = {
+    .hypervisorDriver = &vmwareHypervisorDriver,
 };
 
 int
 vmwareRegister(void)
 {
-    if (virRegisterDriver(&vmwareDriver) < 0)
-        return -1;
-    return 0;
+    return virRegisterConnectDriver(&vmwareConnectDriver,
+                                    false);
 }

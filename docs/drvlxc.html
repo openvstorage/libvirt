@@ -116,7 +116,7 @@
                         </div>
                       </li><li>
                         <div>
-                          <a title="Driver for Parallels Cloud Server" class="inactive" href="drvparallels.html">Parallels</a>
+                          <a title="Driver for Virtuozzo" class="inactive" href="drvvirtuozzo.html">Virtuozzo</a>
                         </div>
                       </li><li>
                         <div>
@@ -210,6 +210,10 @@
             <a href="#activation">Systemd Socket Activation Integration</a>
           </li><li>
             <a href="#exconfig">Example configurations</a>
+          </li><li>
+            <a href="#capabilities">Altering the available capabilities</a>
+          </li><li>
+            <a href="#share">Inherit namespaces</a>
           </li><li>
             <a href="#usage">Container usage / management</a>
             <ul><li>
@@ -311,7 +315,7 @@ environment variables. The following standard environment variables are mandated
 by <a href="http://www.freedesktop.org/wiki/Software/systemd/ContainerInterface" shape="rect">systemd container interface</a>
 to be provided by all container technologies on Linux.
 </p>
-        <dl><dt>container</dt><dd>The fixed string <code>libvirt-lxc</code> to identify libvirt as the creator</dd><dt>container_uuid</dt><dd>The UUID assigned to the container by libvirt</dd><dt>PATH</dt><dd>The fixed string <code>/bin:/usr/bin</code></dd><dt>TERM</dt><dd>The fixed string <code>linux</code></dd></dl>
+        <dl><dt>container</dt><dd>The fixed string <code>libvirt-lxc</code> to identify libvirt as the creator</dd><dt>container_uuid</dt><dd>The UUID assigned to the container by libvirt</dd><dt>PATH</dt><dd>The fixed string <code>/bin:/usr/bin</code></dd><dt>TERM</dt><dd>The fixed string <code>linux</code></dd><dt>HOME</dt><dd>The fixed string <code>/</code></dd></dl>
         <p>
 In addition to the standard variables, the following libvirt specific
 environment variables are also provided
@@ -355,7 +359,7 @@ numbered incrementally from there.
 </p>
         <p>
 Since /dev/ttyN and /dev/console are linked to the pts devices. The
-tty device of login program is pts device. the pam module securetty
+tty device of login program is pts device. The pam module securetty
 may prevent root user from logging in container. If you want root
 user to log in container successfully, add the pts device to the file
 /etc/securetty of container.
@@ -676,6 +680,77 @@ debootstrap, whatever) under /opt/vm-1-root:
     &lt;/interface&gt;
     &lt;console type='pty' /&gt;
   &lt;/devices&gt;
+&lt;/domain&gt;
+</pre>
+        <h2>
+          <a name="capabilities" shape="rect" id="capabilities">Altering the available capabilities</a>
+          <a class="headerlink" href="#capabilities" title="Permalink to this headline">¶</a>
+        </h2>
+        <p>
+By default the libvirt LXC driver drops some capabilities among which CAP_MKNOD.
+However <span class="since">since 1.2.6</span> libvirt can be told to keep or
+drop some capabilities using a domain configuration like the following:
+</p>
+        <pre xml:space="preserve">
+...
+&lt;features&gt;
+  &lt;capabilities policy='default'&gt;
+    &lt;mknod state='on'/&gt;
+    &lt;sys_chroot state='off'/&gt;
+  &lt;/capabilities&gt;
+&lt;/features&gt;
+...
+</pre>
+        <p>
+The capabilities children elements are named after the capabilities as defined in
+<code>man 7 capabilities</code>. An <code>off</code> state tells libvirt to drop the
+capability, while an <code>on</code> state will force to keep the capability even though
+this one is dropped by default.
+</p>
+        <p>
+The <code>policy</code> attribute can be one of <code>default</code>, <code>allow</code>
+or <code>deny</code>. It defines the default rules for capabilities: either keep the
+default behavior that is dropping a few selected capabilities, or keep all capabilities
+or drop all capabilities. The interest of <code>allow</code> and <code>deny</code> is that
+they guarantee that all capabilities will be kept (or removed) even if new ones are added
+later.
+</p>
+        <p>
+The following example, drops all capabilities but CAP_MKNOD:
+</p>
+        <pre xml:space="preserve">
+...
+&lt;features&gt;
+  &lt;capabilities policy='deny'&gt;
+    &lt;mknod state='on'/&gt;
+  &lt;/capabilities&gt;
+&lt;/features&gt;
+...
+</pre>
+        <p>
+Note that allowing capabilities that are normally dropped by default can seriously
+affect the security of the container and the host.
+</p>
+        <h2>
+          <a name="share" shape="rect" id="share">Inherit namespaces</a>
+          <a class="headerlink" href="#share" title="Permalink to this headline">¶</a>
+        </h2>
+        <p>
+Libvirt allows you to inherit the namespace from container/process just like lxc tools
+or docker provides to share the network namespace. The following can be used to share
+required namespaces. If we want to share only one then the other namespaces can be ignored.
+The netns option is specific to sharenet. It can be used in cases we want to use existing network namespace
+rather than creating new network namespace for the container. In this case privnet option will be
+ignored.
+</p>
+        <pre xml:space="preserve">
+&lt;domain type='lxc' xmlns:lxc='http://libvirt.org/schemas/domain/lxc/1.0'&gt;
+...
+&lt;lxc:namespace&gt;
+  &lt;lxc:sharenet type='netns' value='red'/&gt;
+  &lt;lxc:shareuts type='name' value='container1'/&gt;
+  &lt;lxc:shareipc type='pid' value='12345'/&gt;
+&lt;/lxc:namespace&gt;
 &lt;/domain&gt;
 </pre>
         <h2>

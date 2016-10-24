@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Red Hat, Inc.
+ * Copyright (C) 2013, 2014 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -52,7 +52,7 @@ testVirPCIDeviceCheckDriver(virPCIDevicePtr dev, const char *expected)
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     VIR_FREE(path);
     VIR_FREE(driver);
     return ret;
@@ -77,7 +77,7 @@ testVirPCIDeviceNew(const void *opaque ATTRIBUTE_UNUSED)
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     virPCIDeviceFree(dev);
     return ret;
 }
@@ -107,9 +107,10 @@ testVirPCIDeviceDetach(const void *oaque ATTRIBUTE_UNUSED)
     CHECK_LIST_COUNT(inactiveDevs, 0);
 
     for (i = 0; i < nDev; i++) {
-        if (!(dev[i] = virPCIDeviceNew(0, 0, i + 1, 0)) ||
-            virPCIDeviceSetStubDriver(dev[i], "pci-stub") < 0)
+        if (!(dev[i] = virPCIDeviceNew(0, 0, i + 1, 0)))
             goto cleanup;
+
+        virPCIDeviceSetStubDriver(dev[i], VIR_PCI_STUB_DRIVER_KVM);
 
         if (virPCIDeviceDetach(dev[i], activeDevs, inactiveDevs) < 0)
             goto cleanup;
@@ -122,7 +123,7 @@ testVirPCIDeviceDetach(const void *oaque ATTRIBUTE_UNUSED)
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     for (i = 0; i < nDev; i++)
         virPCIDeviceFree(dev[i]);
     virObjectUnref(activeDevs);
@@ -147,16 +148,17 @@ testVirPCIDeviceReset(const void *opaque ATTRIBUTE_UNUSED)
     CHECK_LIST_COUNT(inactiveDevs, 0);
 
     for (i = 0; i < nDev; i++) {
-        if (!(dev[i] = virPCIDeviceNew(0, 0, i + 1, 0)) ||
-            virPCIDeviceSetStubDriver(dev[i], "pci-stub") < 0)
+        if (!(dev[i] = virPCIDeviceNew(0, 0, i + 1, 0)))
             goto cleanup;
+
+        virPCIDeviceSetStubDriver(dev[i], VIR_PCI_STUB_DRIVER_KVM);
 
         if (virPCIDeviceReset(dev[i], activeDevs, inactiveDevs) < 0)
             goto cleanup;
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     for (i = 0; i < nDev; i++)
         virPCIDeviceFree(dev[i]);
     virObjectUnref(activeDevs);
@@ -189,8 +191,7 @@ testVirPCIDeviceReattach(const void *opaque ATTRIBUTE_UNUSED)
         CHECK_LIST_COUNT(activeDevs, 0);
         CHECK_LIST_COUNT(inactiveDevs, i + 1);
 
-        if (virPCIDeviceSetStubDriver(dev[i], "pci-stub") < 0)
-            goto cleanup;
+        virPCIDeviceSetStubDriver(dev[i], VIR_PCI_STUB_DRIVER_KVM);
     }
 
     CHECK_LIST_COUNT(activeDevs, 0);
@@ -205,7 +206,7 @@ testVirPCIDeviceReattach(const void *opaque ATTRIBUTE_UNUSED)
     }
 
     ret = 0;
-cleanup:
+ cleanup:
     virObjectUnref(activeDevs);
     virObjectUnref(inactiveDevs);
     return ret;
@@ -233,7 +234,7 @@ testVirPCIDeviceIsAssignable(const void *opaque)
         ret = 0;
 
     virPCIDeviceFree(dev);
-cleanup:
+ cleanup:
     return ret;
 }
 
@@ -248,12 +249,13 @@ testVirPCIDeviceDetachSingle(const void *opaque)
     if (!dev)
         goto cleanup;
 
-    if (virPCIDeviceSetStubDriver(dev, "pci-stub") < 0 ||
-        virPCIDeviceDetach(dev, NULL, NULL) < 0)
+    virPCIDeviceSetStubDriver(dev, VIR_PCI_STUB_DRIVER_KVM);
+
+    if (virPCIDeviceDetach(dev, NULL, NULL) < 0)
         goto cleanup;
 
     ret = 0;
-cleanup:
+ cleanup:
     virPCIDeviceFree(dev);
     return ret;
 }
@@ -269,8 +271,7 @@ testVirPCIDeviceDetachFail(const void *opaque)
     if (!dev)
         goto cleanup;
 
-    if (virPCIDeviceSetStubDriver(dev, "vfio-pci") < 0)
-        goto cleanup;
+    virPCIDeviceSetStubDriver(dev, VIR_PCI_STUB_DRIVER_VFIO);
 
     if (virPCIDeviceDetach(dev, NULL, NULL) < 0) {
         if (virTestGetVerbose() || virTestGetDebug())
@@ -281,10 +282,10 @@ testVirPCIDeviceDetachFail(const void *opaque)
         virReportError(VIR_ERR_INTERNAL_ERROR,
                        "Attaching device %s to %s should have failed",
                        virPCIDeviceGetName(dev),
-                       virPCIDeviceGetStubDriver(dev));
+                       virPCIStubDriverTypeToString(VIR_PCI_STUB_DRIVER_VFIO));
     }
 
-cleanup:
+ cleanup:
     virPCIDeviceFree(dev);
     return ret;
 }
@@ -305,7 +306,7 @@ testVirPCIDeviceReattachSingle(const void *opaque)
         goto cleanup;
 
     ret = 0;
-cleanup:
+ cleanup:
     virPCIDeviceFree(dev);
     return ret;
 }
@@ -325,7 +326,7 @@ testVirPCIDeviceCheckDriverTest(const void *opaque)
         goto cleanup;
 
     ret = 0;
-cleanup:
+ cleanup:
     virPCIDeviceFree(dev);
     return ret;
 }
@@ -341,34 +342,34 @@ testVirPCIDeviceUnbind(const void *opaque)
     if (!dev)
         goto cleanup;
 
-    if (virPCIDeviceUnbind(dev, false) < 0)
+    if (virPCIDeviceUnbind(dev) < 0)
         goto cleanup;
 
     ret = 0;
-cleanup:
+ cleanup:
     virPCIDeviceFree(dev);
     return ret;
 }
 
-# define FAKESYSFSDIRTEMPLATE abs_builddir "/fakesysfsdir-XXXXXX"
+# define FAKEROOTDIRTEMPLATE abs_builddir "/fakerootdir-XXXXXX"
 
 static int
 mymain(void)
 {
     int ret = 0;
-    char *fakesysfsdir;
+    char *fakerootdir;
 
-    if (VIR_STRDUP_QUIET(fakesysfsdir, FAKESYSFSDIRTEMPLATE) < 0) {
-        fprintf(stderr, "Out of memory\n");
+    if (VIR_STRDUP_QUIET(fakerootdir, FAKEROOTDIRTEMPLATE) < 0) {
+        VIR_TEST_DEBUG("Out of memory\n");
         abort();
     }
 
-    if (!mkdtemp(fakesysfsdir)) {
-        fprintf(stderr, "Cannot create fakesysfsdir");
+    if (!mkdtemp(fakerootdir)) {
+        VIR_TEST_DEBUG("Cannot create fakerootdir");
         abort();
     }
 
-    setenv("LIBVIRT_FAKE_SYSFS_DIR", fakesysfsdir, 1);
+    setenv("LIBVIRT_FAKE_ROOT_DIR", fakerootdir, 1);
 
 # define DO_TEST(fnc)                                   \
     do {                                                \
@@ -445,11 +446,11 @@ mymain(void)
     DO_TEST_PCI_DRIVER(0, 0x0a, 3, 0, NULL);
 
     if (getenv("LIBVIRT_SKIP_CLEANUP") == NULL)
-        virFileDeleteTree(fakesysfsdir);
+        virFileDeleteTree(fakerootdir);
 
-    VIR_FREE(fakesysfsdir);
+    VIR_FREE(fakerootdir);
 
-    return ret==0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 VIRT_TEST_MAIN_PRELOAD(mymain, abs_builddir "/.libs/virpcimock.so")

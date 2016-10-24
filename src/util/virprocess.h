@@ -1,7 +1,7 @@
 /*
  * virprocess.h: interaction with processes
  *
- * Copyright (C) 2010-2013 Red Hat, Inc.
+ * Copyright (C) 2010-2015 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -26,6 +26,19 @@
 
 # include "internal.h"
 # include "virbitmap.h"
+# include "virutil.h"
+
+typedef enum {
+    VIR_PROC_POLICY_NONE = 0,
+    VIR_PROC_POLICY_BATCH,
+    VIR_PROC_POLICY_IDLE,
+    VIR_PROC_POLICY_FIFO,
+    VIR_PROC_POLICY_RR,
+
+    VIR_PROC_POLICY_LAST
+} virProcessSchedPolicy;
+
+VIR_ENUM_DECL(virProcessSchedPolicy);
 
 char *
 virProcessTranslateStatus(int status);
@@ -33,8 +46,10 @@ virProcessTranslateStatus(int status);
 void
 virProcessAbort(pid_t pid);
 
+void virProcessExitWithStatus(int status) ATTRIBUTE_NORETURN;
+
 int
-virProcessWait(pid_t pid, int *exitstatus)
+virProcessWait(pid_t pid, int *exitstatus, bool raw)
     ATTRIBUTE_RETURN_CHECK;
 
 int virProcessKill(pid_t pid, int sig);
@@ -43,9 +58,9 @@ int virProcessKillPainfully(pid_t pid, bool force);
 
 int virProcessSetAffinity(pid_t pid, virBitmapPtr map);
 
-int virProcessGetAffinity(pid_t pid,
-                          virBitmapPtr *map,
-                          int maxcpu);
+virBitmapPtr virProcessGetAffinity(pid_t pid);
+
+int virProcessGetPids(pid_t pid, size_t *npids, pid_t **pids);
 
 int virProcessGetStartTime(pid_t pid,
                            unsigned long long *timestamp);
@@ -61,14 +76,21 @@ int virProcessSetMaxMemLock(pid_t pid, unsigned long long bytes);
 int virProcessSetMaxProcesses(pid_t pid, unsigned int procs);
 int virProcessSetMaxFiles(pid_t pid, unsigned int files);
 
+int virProcessGetMaxMemLock(pid_t pid, unsigned long long *bytes);
+
 /* Callback to run code within the mount namespace tied to the given
  * pid.  This function must use only async-signal-safe functions, as
  * it gets run after a fork of a multi-threaded process.  The return
  * value of this function is passed to _exit(), except that a
- * negative value is treated as an error.  */
+ * negative value is treated as EXIT_CANCELED.  */
 typedef int (*virProcessNamespaceCallback)(pid_t pid, void *opaque);
 
 int virProcessRunInMountNamespace(pid_t pid,
                                   virProcessNamespaceCallback cb,
                                   void *opaque);
+
+int virProcessSetScheduler(pid_t pid,
+                           virProcessSchedPolicy policy,
+                           int priority);
+
 #endif /* __VIR_PROCESS_H__ */

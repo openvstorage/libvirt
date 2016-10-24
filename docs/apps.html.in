@@ -110,6 +110,12 @@
         application stap can use libvirt to gather data within virtual
         machines.
       </dd>
+      <dt><a href="https://github.com/pradels/vagrant-libvirt/">vagrant-libvirt</a></dt>
+      <dd>
+        Vagrant-Libvirt is a Vagrant plugin that uses libvirt to manage virtual
+        machines. It is a command line tool for developers that makes it very
+        fast and easy to deploy and re-deploy an environment of vm's.
+      </dd>
     </dl>
 
     <h2><a name="configmgmt">Configuration Management</a></h2>
@@ -157,25 +163,21 @@
     <h2><a name="conversion">Conversion</a></h2>
 
     <dl>
-      <dt><a href="https://rwmj.wordpress.com/2009/10/13/poor-mans-p2v/">Poor mans p2v</a></dt>
+      <dt><a href="http://libguestfs.org/virt-p2v.1.html">virt-p2v</a></dt>
       <dd>
-        A simple approach for converting a physical machine to a virtual
-        machine, using a rescue CD.
+        Convert a physical machine to run on KVM.  It is a LiveCD
+        which is booted on the machine to be converted.  It collects a
+        little information from the user, then copies the disks over
+        to a remote machine and defines the XML for a domain to run
+        the guest.  (Note this tool is included with libguestfs)
       </dd>
-      <dt><a href="http://et.redhat.com/~rjones/virt-p2v/">virt-p2v</a></dt>
+      <dt><a href="http://libguestfs.org/virt-v2v.1.html">virt-v2v</a></dt>
       <dd>
-        An older tool for converting a physical machine into a virtual
-        machine.  It is a LiveCD which is booted on the machine to be
-        converted.  It collects a little information from the user, then
-        copies the disks over to a remote machine and defines the XML for a
-        domain to run the guest.
-      </dd>
-      <dt><a href="http://git.fedorahosted.org/git/?p=virt-v2v.git;a=summary">virt-v2v</a></dt>
-      <dd>
-        virt-v2v converts guests from a foreign hypervisor to run on KVM,
-        managed by libvirt.  It can currently convert Red Hat Enterprise
-        Linux (RHEL) and Fedora guests running on Xen and VMware ESX.  It
+        virt-v2v converts guests from a foreign hypervisor to run on
+        KVM, managed by libvirt.  It can convert guests from VMware or
+        Xen to run on OpenStack, oVirt (RHEV-M), or local libvirt.  It
         will enable VirtIO drivers in the converted guest if possible.
+        (Note this tool is included with libguestfs)
       </dd>
       <dd>
         For RHEL customers of Red Hat, conversion of Windows guests is also
@@ -260,6 +262,16 @@
         using a dashboard.  Compute part uses libvirt to manage VM
         life-cycle, monitoring and so on.
       </dd>
+
+      <dt><a href="https://github.com/gustavfranssonnyvell/cherrypop">Cherrypop</a></dt>
+      <dd>
+        A cloud software with no masters or central points. Nodes
+        autodetect other nodes and autodistribute virtual
+        machines and autodivide up the workload. Also there is no
+        minimum limit for hosts, well, one might be nice. It's
+        perfect for setting up low-end servers in a cloud or a
+        cloud where you want the most bang for the bucks.
+      </dd>
     </dl>
 
     <h2><a name="libraries">Libraries</a></h2>
@@ -318,6 +330,12 @@
         for each guest without installing collectd on the guest systems.
         For a full description, please refer to the libvirt section in the
         collectd.conf(5) manual page.
+      </dd>
+      <dt><a href="http://host-sflow.sourceforge.net/">Host sFlow</a></dt>
+      <dd>
+        Host sFlow is a lightweight agent running on KVM hypervisors that
+        links to libvirt library and exports standardized cpu, memory, network
+        and disk metrics for all virtual machines.
       </dd>
       <dt><a href="http://honk.sigxcpu.org/projects/libvirt/#munin">Munin</a></dt>
       <dd>
@@ -393,6 +411,23 @@
         with FreeIPA for Kerberos authentication, and in the future,
         certificate management.
       </dd>
+      <dt><a href="http://ispsystem.com/en/software/vmmanager">VMmanager</a></dt>
+      <dd>
+        VMmanager is a software solution for virtualization management
+        that can be used both for hosting virtual machines and
+        building a cloud.  VMmanager can manage not only one server,
+        but a large cluster of hypervisors.  It delivers a number of
+        functions, such as live migration that allows for load
+        balancing between cluster nodes, monitoring CPU, memory.
+      </dd>
+      <dt><a href="http://mist.io/">mist.io</a></dt>
+      <dd>
+        Mist.io is an open source project and a service that can assist you in
+        managing your virtual machines on a unified way, providing a simple
+        interface for all of your infrastructure (multiple public cloud
+        providers, OpenStack based public/private clouds, Docker servers, bare
+        metal servers and now KVM hypervisors).
+      </dd>
     </dl>
 
     <h2><a name="mobile">Mobile applications</a></h2>
@@ -403,6 +438,20 @@
         VM Manager is VM (libvirt) manager (over SSH) application. VM Manager
         is an application for libvirt VM / Domain management over SSH.
         Please keep in mind that this software is under heavy development.
+      </dd>
+    </dl>
+
+    <h2><a name="other">Other</a></h2>
+
+    <dl>
+      <dt><a href="http://cuckoosandbox.org/">Cuckoo Sandbox</a></dt>
+      <dd>
+        Cuckoo Sandbox is a malware analysis system.  You can throw
+        any suspicious file at it and in a matter of seconds Cuckoo
+        will provide you back some detailed results outlining what
+        such file did when executed inside an isolated environment.
+        And libvirt is one of the backends that can be used for the
+        isolated environment.
       </dd>
     </dl>
 

@@ -71,6 +71,7 @@ module Libvirtd_qemu =
                  | bool_entry "set_process_name"
                  | int_entry "max_processes"
                  | int_entry "max_files"
+                 | str_entry "stdio_handler"
 
    let device_entry = bool_entry "mac_filter"
                  | bool_entry "relaxed_acs_check"
@@ -84,6 +85,11 @@ module Libvirtd_qemu =
    let network_entry = str_entry "migration_address"
                  | int_entry "migration_port_min"
                  | int_entry "migration_port_max"
+                 | str_entry "migration_host"
+
+   let log_entry = bool_entry "log_timestamp"
+
+   let nvram_entry = str_array_entry "nvram"
 
    (* Each entry in the config is one of the following ... *)
    let entry = vnc_entry
@@ -96,6 +102,8 @@ module Libvirtd_qemu =
              | device_entry
              | rpc_entry
              | network_entry
+             | log_entry
+             | nvram_entry
 
    let comment = [ label "#comment" . del /#[ \t]*/ "# " .  store /([^ \t\n][^\n]*)?/ . del /\n/ "\n" ]
    let empty = [ label "#empty" . eol ]

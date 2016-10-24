@@ -40,6 +40,8 @@ enum {
     UPDATE
 };
 
+#define QEMU_HOTPLUG_TEST_DOMAIN_ID 7
+
 struct qemuHotplugTestData {
     const char *domain_filename;
     const char *device_filename;
@@ -55,19 +57,12 @@ static int
 qemuHotplugCreateObjects(virDomainXMLOptionPtr xmlopt,
                          virDomainObjPtr *vm,
                          const char *domxml,
-                         bool event)
+                         bool event, const char *testname)
 {
     int ret = -1;
     qemuDomainObjPrivatePtr priv = NULL;
 
     if (!(*vm = virDomainObjNew(xmlopt)))
-        goto cleanup;
-
-    if (!((*vm)->def = virDomainDefParseString(domxml,
-                                               driver.caps,
-                                               driver.xmlopt,
-                                               QEMU_EXPECTED_VIRT_TYPES,
-                                               0)))
         goto cleanup;
 
     priv = (*vm)->privateData;
@@ -76,22 +71,33 @@ qemuHotplugCreateObjects(virDomainXMLOptionPtr xmlopt,
         goto cleanup;
 
     /* for attach & detach qemu must support -device */
-    virQEMUCapsSet(priv->qemuCaps, QEMU_CAPS_DRIVE);
     virQEMUCapsSet(priv->qemuCaps, QEMU_CAPS_DEVICE);
-    virQEMUCapsSet(priv->qemuCaps, QEMU_CAPS_NET_NAME);
     virQEMUCapsSet(priv->qemuCaps, QEMU_CAPS_VIRTIO_SCSI);
     virQEMUCapsSet(priv->qemuCaps, QEMU_CAPS_DEVICE_USB_STORAGE);
     if (event)
         virQEMUCapsSet(priv->qemuCaps, QEMU_CAPS_DEVICE_DEL_EVENT);
 
-    if (qemuDomainAssignPCIAddresses((*vm)->def, priv->qemuCaps, *vm) < 0)
+    ret = qemuTestCapsCacheInsert(driver.qemuCapsCache, testname,
+                                  priv->qemuCaps);
+    if (ret < 0)
+        goto cleanup;
+
+    if (!((*vm)->def = virDomainDefParseString(domxml,
+                                               driver.caps,
+                                               driver.xmlopt,
+                                               VIR_DOMAIN_DEF_PARSE_INACTIVE)))
+        goto cleanup;
+
+    if (qemuDomainAssignAddresses((*vm)->def, priv->qemuCaps, *vm) < 0)
         goto cleanup;
 
     if (qemuAssignDeviceAliases((*vm)->def, priv->qemuCaps) < 0)
         goto cleanup;
 
+    (*vm)->def->id = QEMU_HOTPLUG_TEST_DOMAIN_ID;
+
     ret = 0;
-cleanup:
+ cleanup:
     return ret;
 }
 
@@ -112,9 +118,8 @@ testQemuHotplugAttach(virDomainObjPtr vm,
         ret = qemuDomainAttachChrDevice(&driver, vm, dev->data.chr);
         break;
     default:
-        if (virTestGetVerbose())
-            fprintf(stderr, "device type '%s' cannot be attached\n",
-                    virDomainDeviceTypeToString(dev->type));
+        VIR_TEST_VERBOSE("device type '%s' cannot be attached\n",
+                virDomainDeviceTypeToString(dev->type));
         break;
     }
 
@@ -135,9 +140,8 @@ testQemuHotplugDetach(virDomainObjPtr vm,
         ret = qemuDomainDetachChrDevice(&driver, vm, dev->data.chr);
         break;
     default:
-        if (virTestGetVerbose())
-            fprintf(stderr, "device type '%s' cannot be detached\n",
-                    virDomainDeviceTypeToString(dev->type));
+        VIR_TEST_VERBOSE("device type '%s' cannot be detached\n",
+                virDomainDeviceTypeToString(dev->type));
         break;
     }
 
@@ -160,9 +164,8 @@ testQemuHotplugUpdate(virDomainObjPtr vm,
         ret = qemuDomainChangeGraphics(&driver, vm, dev->data.graphics);
         break;
     default:
-        if (virTestGetVerbose())
-            fprintf(stderr, "device type '%s' cannot be updated\n",
-                    virDomainDeviceTypeToString(dev->type));
+        VIR_TEST_VERBOSE("device type '%s' cannot be updated\n",
+                virDomainDeviceTypeToString(dev->type));
         break;
     }
 
@@ -177,13 +180,15 @@ testQemuHotplugCheckResult(virDomainObjPtr vm,
     char *actual;
     int ret;
 
-    actual = virDomainDefFormat(vm->def, VIR_DOMAIN_XML_SECURE);
+    vm->def->id = -1;
+    actual = virDomainDefFormat(vm->def, VIR_DOMAIN_DEF_FORMAT_SECURE);
     if (!actual)
         return -1;
+    vm->def->id = QEMU_HOTPLUG_TEST_DOMAIN_ID;
 
     if (STREQ(expected, actual)) {
-        if (fail && virTestGetVerbose())
-            fprintf(stderr, "domain XML should not match the expected result\n");
+        if (fail)
+            VIR_TEST_VERBOSE("domain XML should not match the expected result\n");
         ret = 0;
     } else {
         if (!fail)
@@ -209,6 +214,7 @@ testQemuHotplug(const void *data)
     const char *const *tmp;
     bool fail = test->fail;
     bool keep = test->keep;
+    unsigned int device_parse_flags = 0;
     virDomainObjPtr vm = NULL;
     virDomainDeviceDefPtr dev = NULL;
     virCapsPtr caps = NULL;
@@ -240,12 +246,17 @@ testQemuHotplug(const void *data)
         vm = test->vm;
     } else {
         if (qemuHotplugCreateObjects(driver.xmlopt, &vm, domain_xml,
-                                     test->deviceDeletedEvent) < 0)
+                                     test->deviceDeletedEvent,
+                                     test->domain_filename) < 0)
             goto cleanup;
     }
 
+    if (test->action == ATTACH)
+        device_parse_flags = VIR_DOMAIN_DEF_PARSE_INACTIVE;
+
     if (!(dev = virDomainDeviceDefParse(device_xml, vm->def,
-                                        caps, driver.xmlopt, 0)))
+                                        caps, driver.xmlopt,
+                                        device_parse_flags)))
         goto cleanup;
 
     /* Now is the best time to feed the spoofed monitor with predefined
@@ -296,7 +307,7 @@ testQemuHotplug(const void *data)
         ret = testQemuHotplugUpdate(vm, dev);
     }
 
-cleanup:
+ cleanup:
     VIR_FREE(domain_filename);
     VIR_FREE(device_filename);
     VIR_FREE(result_filename);
@@ -331,13 +342,11 @@ mymain(void)
 #endif
 
     if (virThreadInitialize() < 0 ||
-        !(driver.caps = testQemuCapsInit()) ||
-        !(driver.xmlopt = virQEMUDriverCreateXMLConf(&driver)))
+        qemuTestDriverInit(&driver) < 0)
         return EXIT_FAILURE;
 
     virEventRegisterDefaultImpl();
 
-    driver.config = virQEMUDriverConfigNew(false);
     VIR_FREE(driver.config->spiceListen);
     VIR_FREE(driver.config->vncListen);
     /* some dummy values from 'config file' */
@@ -353,7 +362,8 @@ mymain(void)
     if (!driver.lockManager)
         return EXIT_FAILURE;
 
-    if (!(mgr = virSecurityManagerNew("none", "qemu", false, false, false)))
+    if (!(mgr = virSecurityManagerNew("none", "qemu",
+                                      VIR_SECURITY_MANAGER_PRIVILEGED)))
         return EXIT_FAILURE;
     if (!(driver.securityManager = virSecurityManagerNewStack(mgr)))
         return EXIT_FAILURE;
@@ -478,9 +488,7 @@ mymain(void)
                    "device_del", QMP_DEVICE_DELETED("scsi0-0-0-5") QMP_OK,
                    "human-monitor-command", HMP(""));
 
-    virObjectUnref(driver.caps);
-    virObjectUnref(driver.xmlopt);
-    virObjectUnref(driver.config);
+    qemuTestDriverFree(&driver);
     return (ret == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 

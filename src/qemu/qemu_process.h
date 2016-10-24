@@ -1,7 +1,7 @@
 /*
  * qemu_process.h: QEMU process management
  *
- * Copyright (C) 2006-2012 Red Hat, Inc.
+ * Copyright (C) 2006-2012, 2015 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -33,16 +33,38 @@ int qemuProcessStartCPUs(virQEMUDriverPtr driver,
                          virDomainObjPtr vm,
                          virConnectPtr conn,
                          virDomainRunningReason reason,
-                         enum qemuDomainAsyncJob asyncJob);
+                         qemuDomainAsyncJob asyncJob);
 int qemuProcessStopCPUs(virQEMUDriverPtr driver,
                         virDomainObjPtr vm,
                         virDomainPausedReason reason,
-                        enum qemuDomainAsyncJob asyncJob);
+                        qemuDomainAsyncJob asyncJob);
 
 void qemuProcessAutostartAll(virQEMUDriverPtr driver);
 void qemuProcessReconnectAll(virConnectPtr conn, virQEMUDriverPtr driver);
 
 int qemuProcessAssignPCIAddresses(virDomainDefPtr def);
+
+typedef struct _qemuProcessIncomingDef qemuProcessIncomingDef;
+typedef qemuProcessIncomingDef *qemuProcessIncomingDefPtr;
+struct _qemuProcessIncomingDef {
+    char *address; /* address where QEMU is supposed to listen */
+    char *launchURI; /* used as a parameter for -incoming command line option */
+    char *deferredURI; /* used when calling migrate-incoming QMP command */
+    int fd; /* for fd:N URI */
+    const char *path; /* path associated with fd */
+};
+
+qemuProcessIncomingDefPtr qemuProcessIncomingDefNew(virQEMUCapsPtr qemuCaps,
+                                                    const char *listenAddress,
+                                                    const char *migrateFrom,
+                                                    int fd,
+                                                    const char *path);
+void qemuProcessIncomingDefFree(qemuProcessIncomingDefPtr inc);
+
+int qemuProcessBeginJob(virQEMUDriverPtr driver,
+                        virDomainObjPtr vm);
+void qemuProcessEndJob(virQEMUDriverPtr driver,
+                       virDomainObjPtr vm);
 
 typedef enum {
     VIR_QEMU_PROCESS_START_COLD         = 1 << 0,
@@ -53,12 +75,33 @@ typedef enum {
 int qemuProcessStart(virConnectPtr conn,
                      virQEMUDriverPtr driver,
                      virDomainObjPtr vm,
+                     qemuDomainAsyncJob asyncJob,
                      const char *migrateFrom,
                      int stdin_fd,
                      const char *stdin_path,
                      virDomainSnapshotObjPtr snapshot,
-                     enum virNetDevVPortProfileOp vmop,
+                     virNetDevVPortProfileOp vmop,
                      unsigned int flags);
+
+int qemuProcessInit(virQEMUDriverPtr driver,
+                    virDomainObjPtr vm,
+                    bool migration);
+
+int qemuProcessLaunch(virConnectPtr conn,
+                      virQEMUDriverPtr driver,
+                      virDomainObjPtr vm,
+                      qemuDomainAsyncJob asyncJob,
+                      qemuProcessIncomingDefPtr incoming,
+                      virDomainSnapshotObjPtr snapshot,
+                      virNetDevVPortProfileOp vmop,
+                      unsigned int flags);
+
+int qemuProcessFinishStartup(virConnectPtr conn,
+                             virQEMUDriverPtr driver,
+                             virDomainObjPtr vm,
+                             qemuDomainAsyncJob asyncJob,
+                             bool startCPUs,
+                             virDomainPausedReason pausedReason);
 
 typedef enum {
     VIR_QEMU_PROCESS_STOP_MIGRATED      = 1 << 0,
@@ -98,9 +141,18 @@ int qemuProcessAutoDestroyRemove(virQEMUDriverPtr driver,
                                  virDomainObjPtr vm);
 bool qemuProcessAutoDestroyActive(virQEMUDriverPtr driver,
                                   virDomainObjPtr vm);
-virBitmapPtr qemuPrepareCpumap(virQEMUDriverPtr driver,
-                               virBitmapPtr nodemask);
 
-int qemuProcessReadLog(int fd, char *buf, int buflen, int off, bool skipchar);
+int qemuProcessSetSchedParams(int id, pid_t pid, size_t nsp,
+                              virDomainThreadSchedParamPtr sp);
+
+int qemuProcessSPICEAllocatePorts(virQEMUDriverPtr driver,
+                                  virQEMUDriverConfigPtr cfg,
+                                  virDomainGraphicsDefPtr graphics,
+                                  bool allocate);
+
+virDomainDiskDefPtr qemuProcessFindDomainDiskByAlias(virDomainObjPtr vm,
+                                                     const char *alias);
+
+int qemuConnectAgent(virQEMUDriverPtr driver, virDomainObjPtr vm);
 
 #endif /* __QEMU_PROCESS_H__ */

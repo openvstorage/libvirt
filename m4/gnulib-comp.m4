@@ -1,5 +1,5 @@
 # DO NOT EDIT! GENERATED AUTOMATICALLY!
-# Copyright (C) 2002-2014 Free Software Foundation, Inc.
+# Copyright (C) 2002-2016 Free Software Foundation, Inc.
 #
 # This file is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,7 +37,11 @@ AC_DEFUN([gl_EARLY],
   m4_pattern_allow([^gl_ES$])dnl a valid locale name
   m4_pattern_allow([^gl_LIBOBJS$])dnl a variable
   m4_pattern_allow([^gl_LTLIBOBJS$])dnl a variable
+
+  # Pre-early section.
+  AC_REQUIRE([gl_USE_SYSTEM_EXTENSIONS])
   AC_REQUIRE([gl_PROG_AR_RANLIB])
+
   AC_REQUIRE([AM_PROG_CC_C_O])
   # Code from module absolute-header:
   # Code from module accept:
@@ -50,6 +54,7 @@ AC_DEFUN([gl_EARLY],
   # Code from module areadlink-tests:
   # Code from module arpa_inet:
   # Code from module arpa_inet-tests:
+  # Code from module assure:
   # Code from module autobuild:
   AB_INIT
   # Code from module base64:
@@ -84,11 +89,15 @@ AC_DEFUN([gl_EARLY],
   # Code from module configmake:
   # Code from module connect:
   # Code from module connect-tests:
+  # Code from module count-leading-zeros:
+  # Code from module count-leading-zeros-tests:
   # Code from module count-one-bits:
   # Code from module count-one-bits-tests:
   # Code from module crypto/md5:
   # Code from module crypto/md5-tests:
   # Code from module crypto/sha256:
+  # Code from module ctype:
+  # Code from module ctype-tests:
   # Code from module dirname-lgpl:
   # Code from module dosname:
   # Code from module double-slash-root:
@@ -104,7 +113,6 @@ AC_DEFUN([gl_EARLY],
   # Code from module execinfo:
   # Code from module exitfail:
   # Code from module extensions:
-  AC_REQUIRE([gl_USE_SYSTEM_EXTENSIONS])
   # Code from module extern-inline:
   # Code from module fatal-signal:
   # Code from module fclose:
@@ -233,8 +241,6 @@ AC_DEFUN([gl_EARLY],
   # Code from module lstat:
   # Code from module lstat-tests:
   # Code from module maintainer-makefile:
-  # Code from module malloc-gnu:
-  # Code from module malloc-gnu-tests:
   # Code from module malloc-posix:
   # Code from module malloca:
   # Code from module malloca-tests:
@@ -314,6 +320,8 @@ AC_DEFUN([gl_EARLY],
   # Code from module posix_spawnp-tests:
   # Code from module progname:
   # Code from module pthread:
+  AC_DEFINE([_REENTRANT], 1, [For thread-safety on OSF/1, Solaris.])
+  AC_DEFINE([_THREAD_SAFE], 1, [For thread-safety on AIX, FreeBSD.])
   # Code from module pthread_sigmask:
   # Code from module pthread_sigmask-tests:
   # Code from module ptsname:
@@ -574,6 +582,7 @@ AC_SUBST([LTALLOCA])
     AC_LIBOBJ([connect])
   fi
   gl_SYS_SOCKET_MODULE_INDICATOR([connect])
+  gl_COUNT_LEADING_ZEROS
   gl_COUNT_ONE_BITS
   gl_MD5
   gl_SHA256
@@ -810,11 +819,6 @@ AC_SUBST([LTALLOCA])
   AC_CONFIG_COMMANDS_PRE([m4_ifdef([AH_HEADER],
     [AC_SUBST([CONFIG_INCLUDE], m4_defn([AH_HEADER]))])])
   AC_REQUIRE([AC_PROG_SED])
-  gl_FUNC_MALLOC_GNU
-  if test $REPLACE_MALLOC = 1; then
-    AC_LIBOBJ([malloc])
-  fi
-  gl_MODULE_INDICATOR([malloc-gnu])
   gl_FUNC_MALLOC_POSIX
   if test $REPLACE_MALLOC = 1; then
     AC_LIBOBJ([malloc])
@@ -883,11 +887,11 @@ AC_SUBST([LTALLOCA])
     AC_LIBOBJ([mktime])
     gl_PREREQ_MKTIME
   fi
-  gl_MSVC_INVAL
+  AC_REQUIRE([gl_MSVC_INVAL])
   if test $HAVE_MSVC_INVALID_PARAMETER_HANDLER = 1; then
     AC_LIBOBJ([msvc-inval])
   fi
-  gl_MSVC_NOTHROW
+  AC_REQUIRE([gl_MSVC_NOTHROW])
   if test $HAVE_MSVC_INVALID_PARAMETER_HANDLER = 1; then
     AC_LIBOBJ([msvc-nothrow])
   fi
@@ -1077,8 +1081,8 @@ AC_SUBST([LTALLOCA])
     SYS_IOCTL_H_HAVE_WINSOCK2_H_AND_USE_SOCKETS=1
   fi
   gl_SYS_SOCKET_MODULE_INDICATOR([socket])
-  gl_SOCKETLIB
-  gl_SOCKETS
+  AC_REQUIRE([gl_SOCKETLIB])
+  AC_REQUIRE([gl_SOCKETS])
   gl_TYPE_SOCKLEN_T
   gt_TYPE_SSIZE_T
   gl_FUNC_STAT
@@ -1176,7 +1180,7 @@ AC_SUBST([LTALLOCA])
   AC_PROG_MKDIR_P
   gl_HEADER_SYS_SELECT
   AC_PROG_MKDIR_P
-  gl_HEADER_SYS_SOCKET
+  AC_REQUIRE([gl_HEADER_SYS_SOCKET])
   AC_PROG_MKDIR_P
   gl_HEADER_SYS_STAT_H
   AC_PROG_MKDIR_P
@@ -1297,6 +1301,7 @@ changequote([, ])dnl
   gt_LOCALE_FR
   gt_LOCALE_TR_UTF8
   AC_CHECK_FUNCS_ONCE([getegid])
+  gl_CTYPE_H
   gl_FUNC_DUP
   if test $REPLACE_DUP = 1; then
     AC_LIBOBJ([dup])
@@ -1683,6 +1688,7 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/arpa_inet.in.h
   lib/asnprintf.c
   lib/asprintf.c
+  lib/assure.h
   lib/base64.c
   lib/base64.h
   lib/basename-lgpl.c
@@ -1710,6 +1716,8 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/close.c
   lib/config.charset
   lib/connect.c
+  lib/count-leading-zeros.c
+  lib/count-leading-zeros.h
   lib/count-one-bits.c
   lib/count-one-bits.h
   lib/dirname-lgpl.c
@@ -1953,7 +1961,9 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/close.m4
   m4/codeset.m4
   m4/configmake.m4
+  m4/count-leading-zeros.m4
   m4/count-one-bits.m4
+  m4/ctype.m4
   m4/dirname.m4
   m4/double-slash-root.m4
   m4/dup.m4
@@ -2217,7 +2227,9 @@ AC_DEFUN([gl_FILE_LIST], [
   tests/test-cloexec.c
   tests/test-close.c
   tests/test-connect.c
+  tests/test-count-leading-zeros.c
   tests/test-count-one-bits.c
+  tests/test-ctype.c
   tests/test-dup.c
   tests/test-dup2.c
   tests/test-environ.c
@@ -2302,7 +2314,6 @@ AC_DEFUN([gl_FILE_LIST], [
   tests/test-lseek.sh
   tests/test-lstat.c
   tests/test-lstat.h
-  tests/test-malloc-gnu.c
   tests/test-malloca.c
   tests/test-math.c
   tests/test-mbrtowc-w32-1.sh
@@ -2457,6 +2468,7 @@ AC_DEFUN([gl_FILE_LIST], [
   tests/test-xalloc-die.c
   tests/test-xalloc-die.sh
   tests/zerosize-ptr.h
+  tests=lib/ctype.in.h
   tests=lib/dup.c
   tests=lib/error.c
   tests=lib/error.h
