@@ -20,7 +20,7 @@
     <os_type>xen</os_type>
     <arch name='i686'>
       <wordsize>32</wordsize>
-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
+      <emulator>qemu-dm</emulator>
       <machine>xenpv</machine>
       <domain type='xen'/>
     </arch>
@@ -33,8 +33,8 @@
     <os_type>hvm</os_type>
     <arch name='i686'>
       <wordsize>32</wordsize>
-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
-      <loader>/usr/lib/xen/boot/hvmloader</loader>
+      <emulator>qemu-dm</emulator>
+      <loader>hvmloader</loader>
       <machine>xenfv</machine>
       <domain type='xen'/>
     </arch>

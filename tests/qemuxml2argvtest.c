@@ -802,6 +802,7 @@ mymain(void)
     DO_TEST("disk-drive-network-gluster", NONE);
     DO_TEST("disk-drive-network-rbd", NONE);
     DO_TEST("disk-drive-network-sheepdog", NONE);
+    DO_TEST("disk-drive-network-openvstorage", NONE);
     DO_TEST("disk-drive-network-rbd-auth", NONE);
     DO_TEST("disk-drive-network-rbd-ipv6", NONE);
     DO_TEST_FAILURE("disk-drive-network-rbd-no-colon", NONE);

@@ -1165,6 +1165,15 @@ cmdPoolList(vshControl *ctl, const vshCmd *cmd ATTRIBUTE_UNUSED)
             case VIR_STORAGE_POOL_ZFS:
                 flags |= VIR_CONNECT_LIST_STORAGE_POOLS_ZFS;
                 break;
+	    case VIR_STORAGE_POOL_OPENVSTORAGE:
+                flags |= VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE;
+                break;
+            case VIR_STORAGE_POOL_OPENVSTORAGE_TCP:
+                flags |= VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE_TCP;
+                break;
+            case VIR_STORAGE_POOL_OPENVSTORAGE_RDMA:
+                flags |= VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE_RDMA;
+                break;
             case VIR_STORAGE_POOL_LAST:
                 break;
             }

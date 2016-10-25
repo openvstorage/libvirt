@@ -437,6 +437,9 @@ static bool
 libxlDriverShouldLoad(bool privileged)
 {
     bool ret = false;
+    int status;
+    char *output = NULL;
+    virCommandPtr cmd;
 
     /* Don't load if non-root */
     if (!privileged) {
@@ -445,8 +448,6 @@ libxlDriverShouldLoad(bool privileged)
     }
 
     if (virFileExists(HYPERVISOR_CAPABILITIES)) {
-        int status;
-        char *output = NULL;
         /*
          * Don't load if not running on a Xen control domain (dom0). It is not
          * sufficient to check for the file to exist as any guest can mount
@@ -469,19 +470,23 @@ libxlDriverShouldLoad(bool privileged)
     }
 
     /* Don't load if legacy xen toolstack (xend) is in use */
-    if (virFileExists("/usr/sbin/xend")) {
-        virCommandPtr cmd;
+    cmd = virCommandNewArgList("/usr/lib/xen-common/bin/xen-toolstack", NULL);
+    virCommandSetOutputBuffer(cmd, &output);
+    if (virCommandRun(cmd, &status) == 0 && status == 0) {
+        int i, j;
 
-        cmd = virCommandNewArgList("/usr/sbin/xend", "status", NULL);
-        if (virCommandRun(cmd, NULL) == 0) {
+        for (i = 0, j = 0; output[i] != '\0'; i++)
+            if (output[i] == '/')
+                j = i + 1;
+
+        if (output[j] == 'x' && output[j+1] == 'l') {
+            ret = true;
+        } else {
             VIR_INFO("Legacy xen tool stack seems to be in use, disabling "
                      "libxenlight driver.");
-        } else {
-            ret = true;
         }
+        VIR_FREE(output);
         virCommandFree(cmd);
-    } else {
-        ret = true;
     }
 
     return ret;

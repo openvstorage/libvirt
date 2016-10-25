@@ -6,7 +6,7 @@
   <vcpu placement='static'>1</vcpu>
   <os>
     <type arch='x86_64' machine='xenfv'>hvm</type>
-    <loader type='rom'>/usr/lib/xen/boot/hvmloader</loader>
+    <loader type='rom'>/usr/lib/xen-4.6/boot/hvmloader</loader>
     <kernel>/tmp/vmlinuz</kernel>
     <initrd>/tmp/initrd</initrd>
     <cmdline>ignore_loglvl</cmdline>
@@ -22,7 +22,7 @@
   <on_reboot>restart</on_reboot>
   <on_crash>restart</on_crash>
   <devices>
-    <emulator>/usr/lib/xen/bin/qemu-system-i386</emulator>
+    <emulator>/usr/bin/qemu-system-i386</emulator>
     <disk type='block' device='disk'>
       <driver name='phy' type='raw'/>
       <source dev='/dev/HostVG/XenGuest2'/>

@@ -1,5 +1,17 @@
 #!/bin/sh
-
+#
+### BEGIN INIT INFO
+# Provides: libvirt-guests
+# Required-Start: $remote_fs libvirtd
+# Required-Stop: $remote_fs libvirtd
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: suspend/resume libvirt guests on shutdown/boot
+# Description: This is a script for suspending active libvirt guests
+#              on shutdown and resuming them on next boot
+#              See http://libvirt.org
+### END INIT INFO
+#
 # Copyright (C) 2011-2014 Red Hat, Inc.
 #
 # This library is free software; you can redistribute it and/or
@@ -16,23 +28,23 @@
 # License along with this library.  If not, see
 # <http://www.gnu.org/licenses/>.
 
-sysconfdir="@sysconfdir@"
-localstatedir="@localstatedir@"
-libvirtd="@sbindir@"/libvirtd
-
-# Source function library.
-test ! -r "$sysconfdir"/rc.d/init.d/functions ||
-    . "$sysconfdir"/rc.d/init.d/functions
+sysconfdir=/etc
+localstatedir=/var
+libvirtd=/usr/sbin/libvirtd
 
 # Source gettext library.
 # Make sure this file is recognized as having translations: _("dummy")
-. "@bindir@"/gettext.sh
+. /usr/bin/gettext.sh
 
-export TEXTDOMAIN="@PACKAGE@" TEXTDOMAINDIR="@localedir@"
+# Make sure calls to this script get redirected to systemctl when
+# using systemd
+. /lib/lsb/init-functions
+
+export TEXTDOMAIN="libvirt" TEXTDOMAINDIR="/usr/share/locale"
 
 URIS=default
-ON_BOOT=start
-ON_SHUTDOWN=suspend
+ON_BOOT=ignore
+ON_SHUTDOWN=shutdown
 SHUTDOWN_TIMEOUT=300
 PARALLEL_SHUTDOWN=0
 START_DELAY=0
@@ -41,13 +53,22 @@ CONNECT_RETRIES=10
 RETRIES_SLEEP=1
 SYNC_TIME=0
 
-test -f "$sysconfdir"/sysconfig/libvirt-guests &&
-    . "$sysconfdir"/sysconfig/libvirt-guests
+test -f "$sysconfdir"/default/libvirt-guests &&
+    . "$sysconfdir"/default/libvirt-guests
 
 LISTFILE="$localstatedir"/lib/libvirt/libvirt-guests
-VAR_SUBSYS_LIBVIRT_GUESTS="$localstatedir"/lock/subsys/libvirt-guests
+VAR_SUBSYS_LIBVIRT_GUESTS="$localstatedir"/lock/libvirt-guests
 
 RETVAL=0
+
+# Default URI is not correct in the Xen case as the non-accelerated
+# qemu driver also gets initialized.
+if [ -f "/proc/xen/capabilities" ]; then
+    if [ "$(cat /proc/xen/capabilities)" = "control_d" ]; then
+        LIBVIRT_DEFAULT_URI="xen:///"
+        export LIBVIRT_DEFAULT_URI
+    fi
+fi
 
 # retval COMMAND ARGUMENTS...
 # run command with arguments and convert non-zero return value to 1 and set
@@ -121,7 +142,7 @@ list_guests() {
         return 1
     fi
 
-    echo $list
+    echo "$list" | grep -v 00000000-0000-0000-0000-000000000000
 }
 
 # guest_name URI UUID
@@ -499,7 +520,7 @@ stop() {
         fi
 
         if [ -n "$list" ]; then
-            echo "$uri" "$list" >>"$LISTFILE"
+            echo "$uri" $list >>"$LISTFILE"
         fi
     done
     set +f
@@ -539,15 +560,14 @@ gueststatus() {
     for uri in $URIS; do
         set +f
         echo "* $uri URI:"
-        retval run_virsh "$uri" list || echo
+        retval run_virsh "$uri" list | grep -v "Domain-0" || echo
     done
     set +f
 }
 
 # rh_status
 # Display current status: whether saved state exists, and whether start
-# has been executed.  We cannot use status() from the functions library,
-# since there is no external daemon process matching this init script.
+# has been executed.
 rh_status() {
     if [ -f "$LISTFILE" ]; then
         gettext "stopped, with saved guests"; echo

@@ -228,6 +228,9 @@ typedef enum {
     VIR_CONNECT_LIST_STORAGE_POOLS_SHEEPDOG      = 1 << 15,
     VIR_CONNECT_LIST_STORAGE_POOLS_GLUSTER       = 1 << 16,
     VIR_CONNECT_LIST_STORAGE_POOLS_ZFS           = 1 << 17,
+    VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE  = 1 << 18,
+    VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE_TCP  = 1 << 19,
+    VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE_RDMA  = 1 << 20,
 } virConnectListAllStoragePoolsFlags;
 
 int                     virConnectListAllStoragePools(virConnectPtr conn,

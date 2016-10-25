@@ -953,7 +953,8 @@ networkDnsmasqConfContents(virNetworkObjPtr network,
                       "##    virsh net-edit %s\n"
                       "## or other application using the libvirt API.\n"
                       "##\n## dnsmasq conf file created by libvirt\n"
-                      "strict-order\n",
+                      "strict-order\n"
+                      "user=libvirt-dnsmasq\n",
                       network->def->name);
 
     if (network->def->dns.forwarders) {

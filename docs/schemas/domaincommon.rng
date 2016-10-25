@@ -1372,6 +1372,7 @@
             <value>ftp</value>
             <value>ftps</value>
             <value>tftp</value>
+	    <value>openvstorage</value>
           </choice>
         </attribute>
         <optional>
@@ -4154,7 +4155,11 @@
             <element name="gic">
               <optional>
                 <attribute name="version">
-                  <ref name="positiveInteger"/>
+                  <choice>
+                    <value>host</value>
+                    <value>2</value>
+                    <value>3</value>
+                  </choice>
                 </attribute>
               </optional>
             </element>

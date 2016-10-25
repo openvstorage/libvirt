@@ -16,9 +16,16 @@ profile virt-aa-helper /usr/{lib,lib64}/libvirt/virt-aa-helper {
   owner @{PROC}/[0-9]*/status r,
   @{PROC}/filesystems r,
 
+  /etc/libnl-3/classid r,
+
   # for hostdev
   /sys/devices/ r,
   /sys/devices/** r,
+  deny /dev/sd* r,
+  deny /dev/vd* r,
+  deny /dev/dm-* r,
+  deny /dev/mapper/ r,
+  deny /dev/mapper/* r,
 
   /usr/{lib,lib64}/libvirt/virt-aa-helper mr,
   /sbin/apparmor_parser Ux,
@@ -45,4 +52,7 @@ profile virt-aa-helper /usr/{lib,lib64}/libvirt/virt-aa-helper {
   /**.vmdk r,
   /**.[iI][sS][oO] r,
   /**/disk{,.*} r,
+
+  # Site-specific additions and overrides. See local/README for details.
+  #include <local/usr.lib.libvirt.virt-aa-helper>
 }

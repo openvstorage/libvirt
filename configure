@@ -785,6 +785,9 @@ WITH_STORAGE_GLUSTER_TRUE
 WITH_STORAGE_SHEEPDOG_FALSE
 WITH_STORAGE_SHEEPDOG_TRUE
 SHEEPDOGCLI
+LIBOPENVSTORAGE_LIBS
+WITH_STORAGE_OPENVSTORAGE_FALSE
+WITH_STORAGE_OPENVSTORAGE_TRUE
 LIBRBD_LIBS
 WITH_STORAGE_RBD_FALSE
 WITH_STORAGE_RBD_TRUE
@@ -2470,6 +2473,7 @@ with_storage_rbd
 with_storage_sheepdog
 with_storage_gluster
 with_storage_zfs
+with_storage_openvstorage
 with_test_suite
 enable_expensive_tests
 enable_test_coverage
@@ -3320,6 +3324,9 @@ Optional Packages:
   --with-storage-gluster  with Gluster backend for the storage driver
                           [default=check]
   --with-storage-zfs      with ZFS backend for the storage driver
+                          [default=check]
+  --with-storage-openvstorage
+                          with OpenvStorage backend for the storage driver
                           [default=check]
   --with-test-suite       build test suite by default [default=check]
   --with-libiconv-prefix[=DIR]  search for libiconv in DIR/include and DIR/lib
@@ -65462,6 +65469,12 @@ else
   with_storage_zfs=check
 fi
 
+# Check whether --with-storage-openvstorage was given.
+if test "${with_storage_openvstorage+set}" = set; then :
+  withval=$with_storage_openvstorage;
+else
+  with_storage_openvstorage=check
+fi
 
 if test "$with_libvirtd" = "no"; then
   with_storage_dir=no
@@ -65472,6 +65485,7 @@ if test "$with_libvirtd" = "no"; then
   with_storage_mpath=no
   with_storage_disk=no
   with_storage_rbd=no
+  with_storage_openvstorage=no
   with_storage_sheepdog=no
   with_storage_gluster=no
   with_storage_zfs=no
@@ -66454,6 +66468,34 @@ else
   WITH_STORAGE_MPATH_FALSE=
 fi
 
+LIBOPENVSTORAGE_LIBS=
+if test "$with_storage_openvstorage" = "yes" || test "$with_storage_openvstorage" = "check"; then
+    ac_fn_c_check_header_mongrel "$LINENO" "openvstorage/volumedriver.h" "ac_cv_header_openvstorage_volumedriver_h" "$ac_includes_default"
+if test "x$ac_cv_header_openvstorage_volumedriver_h" = xyes; then :
+  LIBOPENVSTORAGE_FOUND=yes; break;
+fi
+
+
+
+    if test "$LIBOPENVSTORAGE_FOUND" = "yes"; then
+        with_storage_openvstorage=yes
+        LIBOPENVSTORAGE_LIBS="-lovsvolumedriver -L/usr/lib/openvstorage"
+
+cat >>confdefs.h <<_ACEOF
+#define WITH_STORAGE_OPENVSTORAGE 1
+_ACEOF
+
+    else
+        with_storage_openvstorage=no
+    fi
+fi
+ if test "$with_storage_openvstorage" = "yes"; then
+  WITH_STORAGE_OPENVSTORAGE_TRUE=
+  WITH_STORAGE_OPENVSTORAGE_FALSE='#'
+else
+  WITH_STORAGE_OPENVSTORAGE_TRUE='#'
+  WITH_STORAGE_OPENVSTORAGE_FALSE=
+fi
 
 LIBRBD_LIBS=
 if test "$with_storage_rbd" = "yes" || test "$with_storage_rbd" = "check"; then
@@ -71267,6 +71309,10 @@ if test -z "${WITH_STORAGE_RBD_TRUE}" && test -z "${WITH_STORAGE_RBD_FALSE}"; th
   as_fn_error $? "conditional \"WITH_STORAGE_RBD\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
+if test -z "${WITH_STORAGE_OPENVSTORAGE_TRUE}" && test -z "${WITH_STORAGE_OPENVSTORAGE_FALSE}"; then
+  as_fn_error $? "conditional \"WITH_STORAGE_OPENVSTORAGE\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
 if test -z "${WITH_STORAGE_SHEEPDOG_TRUE}" && test -z "${WITH_STORAGE_SHEEPDOG_FALSE}"; then
   as_fn_error $? "conditional \"WITH_STORAGE_SHEEPDOG\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
@@ -73773,6 +73819,8 @@ $as_echo "$as_me:      RBD: $with_storage_rbd" >&6;}
 $as_echo "$as_me: Sheepdog: $with_storage_sheepdog" >&6;}
 { $as_echo "$as_me:${as_lineno-$LINENO}:  Gluster: $with_storage_gluster" >&5
 $as_echo "$as_me:  Gluster: $with_storage_gluster" >&6;}
+{ $as_echo "$as_me:${as_lineno-$LINENO}:  OpenvStorage: $with_storage_openvstorage" >&5
+$as_echo "$as_me:  OpenvStorage: $with_storage_openvstorage" >&6;}
 { $as_echo "$as_me:${as_lineno-$LINENO}:      ZFS: $with_storage_zfs" >&5
 $as_echo "$as_me:      ZFS: $with_storage_zfs" >&6;}
 { $as_echo "$as_me:${as_lineno-$LINENO}: " >&5
@@ -74612,6 +74660,13 @@ $as_echo "$as_me:      rbd: $LIBRBD_LIBS" >&6;}
 else
 { $as_echo "$as_me:${as_lineno-$LINENO}:      rbd: no" >&5
 $as_echo "$as_me:      rbd: no" >&6;}
+fi
+if test "$with_storage_openvstorage" = "yes" ; then
+{ $as_echo "$as_me:${as_lineno-$LINENO}:      openvstorage: $LIBOPENVSTORAGE_LIBS" >&5
+$as_echo "$as_me:      openvstorage: $LIBOPENVSTORAGE_LIBS" >&6;}
+else
+{ $as_echo "$as_me:${as_lineno-$LINENO}:      openvstorage: no" >&5
+$as_echo "$as_me:      openvstorage: no" >&6;}
 fi
 { $as_echo "$as_me:${as_lineno-$LINENO}: pm-utils: $with_pm_utils" >&5
 $as_echo "$as_me: pm-utils: $with_pm_utils" >&6;}

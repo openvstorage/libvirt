@@ -95,6 +95,9 @@
 #if WITH_STORAGE_ZFS
 # include "storage_backend_zfs.h"
 #endif
+#if WITH_STORAGE_OPENVSTORAGE
+# include "storage_backend_openvstorage.h"
+#endif
 
 #define VIR_FROM_THIS VIR_FROM_STORAGE
 
@@ -131,6 +134,9 @@ static virStorageBackendPtr backends[] = {
 #endif
 #if WITH_STORAGE_GLUSTER
     &virStorageBackendGluster,
+#endif
+#if WITH_STORAGE_OPENVSTORAGE
+    &virStorageBackendOpenvStorage,
 #endif
 #if WITH_STORAGE_ZFS
     &virStorageBackendZFS,

@@ -301,14 +301,14 @@ install-data-polkit::
 	$(INSTALL_DATA) libvirtd.policy $(DESTDIR)$(policydir)/org.libvirt.unix.policy
 if ! WITH_POLKIT0
 	$(MKDIR_P) $(DESTDIR)$(rulesdir)
-	$(INSTALL_DATA) $(srcdir)/$(rulesfile) $(DESTDIR)$(rulesdir)/50-libvirt.rules
+	$(INSTALL_DATA) $(srcdir)/$(rulesfile) $(DESTDIR)$(rulesdir)/60-libvirt.rules
 endif ! WITH_POLKIT0
 
 uninstall-data-polkit::
 	rm -f $(DESTDIR)$(policydir)/org.libvirt.unix.policy
 	rmdir $(DESTDIR)$(policydir) || :
 if ! WITH_POLKIT0
-	rm -f $(DESTDIR)$(rulesdir)/50-libvirt.rules
+	rm -f $(DESTDIR)$(rulesdir)/60-libvirt.rules
 	rmdir $(DESTDIR)$(rulesdir) || :
 endif ! WITH_POLKIT0
 

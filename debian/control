@@ -46,6 +46,7 @@ Build-Depends:
  nfs-common,
  xsltproc,
  librbd-dev [linux-any],
+ libovsvolumedriver-dev (>= 6.2.0),
  zfsutils-linux [amd64 arm64 ppc64el],
 # For "make check"
  dwarves,
@@ -53,6 +54,7 @@ Build-Depends:
  dnsmasq-base,
  openssh-client,
  netcat-openbsd,
+ libovsvolumedriver (>= 6.2.0),
  ebtables [linux-any],
  iptables [linux-any],
  qemu-utils [linux-any],

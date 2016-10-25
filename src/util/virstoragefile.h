@@ -130,6 +130,7 @@ typedef enum {
     VIR_STORAGE_NET_PROTOCOL_FTP,
     VIR_STORAGE_NET_PROTOCOL_FTPS,
     VIR_STORAGE_NET_PROTOCOL_TFTP,
+    VIR_STORAGE_NET_PROTOCOL_OPENVSTORAGE,
 
     VIR_STORAGE_NET_PROTOCOL_LAST
 } virStorageNetProtocol;
@@ -282,6 +283,10 @@ struct _virStorageSource {
     /* Name of the child backing store recorded in metadata of the
      * current file.  */
     char *backingStoreRaw;
+
+     /* openvstorage specific */
+    bool ovs_has_snapshot_timeout;
+    uint32_t snapshot_timeout;
 };
 
 

@@ -215,6 +215,7 @@ mymain(void)
     /* older format using CEPH_ARGS env var */
     DO_TEST("disk-drive-network-rbd-ceph-env");
     DO_TEST("disk-drive-network-sheepdog");
+    DO_TEST("disk-drive-network-openvstorage");
     DO_TEST("disk-usb");
     DO_TEST("graphics-vnc");
     DO_TEST("graphics-vnc-socket");

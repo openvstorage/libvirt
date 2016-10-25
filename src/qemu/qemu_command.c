@@ -56,6 +56,7 @@
 #include "virtpm.h"
 #include "virscsi.h"
 #include "virnuma.h"
+#include "virgic.h"
 #if defined(__linux__)
 # include <linux/capability.h>
 #endif
@@ -71,6 +72,8 @@ VIR_LOG_INIT("qemu.qemu_command");
 #define VIO_ADDR_SCSI 0x2000ul
 #define VIO_ADDR_SERIAL 0x30000000ul
 #define VIO_ADDR_NVRAM 0x3000ul
+
+#define OPENVSTORAGE_DFL_PORT "21321"
 
 VIR_ENUM_DECL(virDomainDiskQEMUBus)
 VIR_ENUM_IMPL(virDomainDiskQEMUBus, VIR_DOMAIN_DISK_BUS_LAST,
@@ -3031,6 +3034,134 @@ qemuParseRBDString(virDomainDiskDefPtr disk)
     return ret;
 }
 
+static int qemuParseOpenvStorageStrStart(const char *str,
+                                         const char *val,
+                                         const char **ptr)
+{
+    const char *pp, *q;
+    pp = str;
+    q = val;
+    while (*q != '\0') {
+        if (*pp != *q)
+            return 0;
+        pp++;
+        q++;
+    }
+    if (ptr)
+        *ptr = pp;
+    return 1;
+}
+
+
+static int qemuParseOpenvStorageString(virDomainDiskDefPtr disk)
+{
+    bool is_network = false;
+    const char *a;
+    char *endptr, *inetaddr, *p, *t, *ptoken;
+    char *tokens[3];
+    unsigned long timeout;
+
+    if (VIR_ALLOC(disk->src->hosts) < 0)
+        goto error;
+
+    disk->src->ovs_has_snapshot_timeout = false;
+    if (strstr(disk->src->path, "openvstorage+tcp"))
+    {
+        disk->src->hosts->transport = VIR_STORAGE_NET_HOST_TRANS_TCP;
+        if (VIR_STRDUP(p, disk->src->path + strlen("openvstorage+tcp:")) < 0) {
+            return -1;
+        }
+        is_network = true;
+    } else if(strstr(disk->src->path, "openvstorage+rdma")) {
+        disk->src->hosts->transport = VIR_STORAGE_NET_HOST_TRANS_RDMA;
+        if (VIR_STRDUP(p, disk->src->path + strlen("openvstorage+rdma:")) < 0)
+        {
+            return -1;
+        }
+        is_network = true;
+    } else {
+        VIR_FREE(disk->src->hosts);
+        if (VIR_STRDUP(p, disk->src->path + strlen("openvstorage:")) < 0) {
+            return -1;
+        }
+    }
+
+    disk->src->nhosts = 0;
+    if (is_network) {
+        tokens[0] = strsep(&p, "/");
+        tokens[1] = strsep(&p, ":");
+        tokens[2] = strsep(&p, "\0");
+    } else {
+        tokens[0] = strsep(&p, ":");
+        tokens[1] = strsep(&p, "\0");
+    }
+
+    if (is_network && ((tokens[0] && !strlen(tokens[0])) ||
+                       (tokens[1] && !strlen(tokens[1]))))
+    {
+        goto error;
+    }
+    else if(!is_network && tokens[0] && !strlen(tokens[0]))
+    {
+        goto error;
+    }
+
+    if (is_network) {
+        if (!index(tokens[0], ':')) {
+            if (VIR_STRDUP(disk->src->hosts->port, OPENVSTORAGE_DFL_PORT) < 0)
+                goto error;
+            if (VIR_STRDUP(disk->src->hosts->name, tokens[0]) < 0)
+                goto error;
+        } else {
+            if (VIR_STRDUP(inetaddr, tokens[0]) < 0)
+                goto error;
+            if (VIR_STRDUP(disk->src->hosts->name, strtok(inetaddr, ":")) < 0)
+            {
+                VIR_FREE(inetaddr);
+                goto error;
+            }
+            ptoken = strtok(NULL, "\0");
+            if (ptoken != NULL) {
+                if (VIR_STRDUP(disk->src->hosts->port, ptoken) < 0) {
+                    VIR_FREE(inetaddr);
+                    goto error;
+                }
+            } else {
+                VIR_FREE(inetaddr);
+                goto error;
+            }
+            VIR_FREE(inetaddr);
+        }
+    }
+
+    t = is_network ? tokens[2] : tokens[1];
+    if (t != NULL && qemuParseOpenvStorageStrStart(t, "snapshot-timeout=",&a))
+    {
+        if (strlen(a) > 0) {
+            timeout = strtoul(a, &endptr, 10);
+            if (strlen(endptr)) {
+                goto error;
+            }
+            disk->src->snapshot_timeout = timeout;
+            disk->src->ovs_has_snapshot_timeout = true;
+        }
+    }
+    VIR_FREE(disk->src->path);
+    if (VIR_STRDUP(disk->src->path, is_network ? tokens[1] : tokens[0]) < 0) {
+        goto error;
+    }
+    if (is_network) {
+        disk->src->nhosts = 1;
+    }
+    VIR_FREE(p);
+    return 0;
+error:
+    VIR_FREE(p);
+    if (is_network) {
+        VIR_FREE(disk->src->hosts);
+    }
+    return -1;
+}
 
 static int
 qemuParseDriveURIString(virDomainDiskDefPtr def, virURIPtr uri,
@@ -3289,6 +3420,7 @@ qemuNetworkDriveGetPort(int protocol,
             return 0;
 
         case VIR_STORAGE_NET_PROTOCOL_RBD:
+	case VIR_STORAGE_NET_PROTOCOL_OPENVSTORAGE:
         case VIR_STORAGE_NET_PROTOCOL_LAST:
         case VIR_STORAGE_NET_PROTOCOL_NONE:
             /* not applicable */
@@ -3503,7 +3635,40 @@ qemuBuildNetworkDriveURI(virStorageSourcePtr src,
 
             ret = virBufferContentAndReset(&buf);
             break;
+        case VIR_STORAGE_NET_PROTOCOL_OPENVSTORAGE:
+            if (src->nhosts > 0 && src->nhosts != 1) {
+                virReportError(VIR_ERR_INTERNAL_ERROR,
+                           _("protocol '%s' accepts only one host"),
+                                       virStorageNetProtocolTypeToString(src->protocol));
+                goto cleanup;
+            }
 
+            if (src->nhosts) {
+                virBufferAsprintf(&buf,
+                                  "openvstorage+%s:%s",
+                                  virStorageNetHostTransportTypeToString(src->hosts->transport),
+                                  src->hosts->name);
+                if (src->hosts->port) {
+                    virBufferAsprintf(&buf, ":%s/%s", src->hosts->port, src->path);
+                } else {
+                    virBufferAsprintf(&buf, "/%s", src->path);
+                }
+           } else {
+            virBufferStrcat(&buf, "openvstorage:", src->path, NULL);
+           }
+
+           if (src->ovs_has_snapshot_timeout) {
+            virBufferAddLit(&buf, ":snapshot-timeout=");
+            virBufferAsprintf(&buf, "%d", src->snapshot_timeout);
+           }
+
+           if (virBufferError(&buf) < 0) {
+                virReportOOMError();
+                goto cleanup;
+            }
+
+            ret = virBufferContentAndReset(&buf);
+            break;
 
         case VIR_STORAGE_NET_PROTOCOL_LAST:
         case VIR_STORAGE_NET_PROTOCOL_NONE:
@@ -7997,7 +8162,7 @@ qemuBuildMachineArgStr(virCommandPtr cmd,
         }
 
         if (def->features[VIR_DOMAIN_FEATURE_GIC] == VIR_TRISTATE_SWITCH_ON) {
-            if (def->gic_version) {
+            if (def->gic_version != VIR_GIC_VERSION_NONE) {
                 if ((def->os.arch != VIR_ARCH_ARMV7L &&
                      def->os.arch != VIR_ARCH_AARCH64) ||
                     (STRNEQ(def->os.machine, "virt") &&
@@ -8009,10 +8174,9 @@ qemuBuildMachineArgStr(virCommandPtr cmd,
                     return -1;
                 }
 
-                /* 2 is the default, so we don't put it as option for
-                 * backwards compatibility
-                 */
-                if (def->gic_version != 2) {
+                /* The default GIC version should not be specified on the
+                 * QEMU commandline for backwards compatibility reasons */
+                if (def->gic_version != VIR_GIC_VERSION_DEFAULT) {
                     if (!virQEMUCapsGet(qemuCaps,
                                         QEMU_CAPS_MACH_VIRT_GIC_VERSION)) {
                         virReportError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
@@ -8022,7 +8186,8 @@ qemuBuildMachineArgStr(virCommandPtr cmd,
                         return -1;
                     }
 
-                    virBufferAsprintf(&buf, ",gic-version=%d", def->gic_version);
+                    virBufferAsprintf(&buf, ",gic-version=%s",
+                                      virGICVersionTypeToString(def->gic_version));
                 }
             }
         }
@@ -11924,6 +12089,14 @@ qemuParseCommandLineDisk(virDomainXMLOptionPtr xmlopt,
 
                     if (qemuParseNBDString(def) < 0)
                         goto error;
+
+		} else if (STRPREFIX(def->src->path, "openvstorage:") ||
+			 STRPREFIX(def->src->path, "openvstorage+")) {
+			def->src->type = VIR_STORAGE_TYPE_NETWORK;
+			def->src->protocol = VIR_STORAGE_NET_PROTOCOL_OPENVSTORAGE;
+			if (qemuParseOpenvStorageString(def) < 0) {
+				goto error;
+			}
                 } else if (STRPREFIX(def->src->path, "rbd:")) {
                     char *p = def->src->path;
 
@@ -13307,6 +13480,10 @@ qemuParseCommandLine(virCapsPtr qemuCaps,
                 case VIR_STORAGE_NET_PROTOCOL_RBD:
                     /* old-style CEPH_ARGS env variable is parsed later */
                     if (!ceph_args && qemuParseRBDString(disk) < 0)
+                        goto error;
+                    break;
+                case VIR_STORAGE_NET_PROTOCOL_OPENVSTORAGE:
+                    if (qemuParseOpenvStorageString(disk) < 0)
                         goto error;
                     break;
                 case VIR_STORAGE_NET_PROTOCOL_SHEEPDOG:

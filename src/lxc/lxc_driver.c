@@ -1571,6 +1571,9 @@ lxcSecurityInit(virLXCDriverConfigPtr cfg)
     virSecurityManagerPtr mgr = virSecurityManagerNew(cfg->securityDriverName,
                                                       LXC_DRIVER_NAME, flags);
     if (!mgr)
+        mgr = virSecurityManagerNew(NULL, LXC_DRIVER_NAME, flags);
+
+    if (!mgr)
         goto error;
 
     return mgr;

@@ -1511,6 +1511,11 @@ virFirewallStartRollback;
 virFirewallStartTransaction;
 
 
+# util/virgic.h
+virGICVersionTypeFromString;
+virGICVersionTypeToString;
+
+
 # util/virhash.h
 virHashAddEntry;
 virHashAtomicNew;

@@ -1538,7 +1538,7 @@ virSetUIDGIDWithCaps(uid_t uid, gid_t gid, gid_t *groups, int ngroups,
 void virFileWaitForDevices(void)
 {
 # ifdef UDEVADM
-    const char *const settleprog[] = { UDEVADM, "settle", NULL };
+    const char *const settleprog[] = { UDEVADM, "settle", "--timeout=10", NULL };
 # else
     const char *const settleprog[] = { UDEVSETTLE, NULL };
 # endif

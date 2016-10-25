@@ -66,4 +66,6 @@
   # allow changing to our UUID-based named profiles
   change_profile -> @{LIBVIRT}-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*,
 
+  # Site-specific additions and overrides. See local/README for details.
+  #include <local/usr.sbin.libvirtd>
 }

@@ -8,4 +8,4 @@ ListenStream=@runstatedir@/libvirt/libvirt-sock-ro
 ; up.  For further information, please see the libvirtd.conf file.
 SocketMode=0777
 SocketUser=root
-SocketGroup=root
+SocketGroup=libvirtd

@@ -37,7 +37,7 @@ PIDFILE=@localstatedir@/run/$SERVICE.pid
 
 VIRTLOCKD_ARGS=
 
-test -f @sysconfdir@/sysconfig/virtlockd && . @sysconfdir@/sysconfig/virtlockd
+test -f @sysconfdir@/default/virtlockd && . @sysconfdir@/default/virtlockd
 
 RETVAL=0
 

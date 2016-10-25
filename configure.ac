@@ -927,6 +927,10 @@ if test "$with_libxl" = "yes"; then
     AC_CHECK_HEADERS([libxlutil.h])
     LIBXL_LIBS="$LIBXL_LIBS -lxlutil"
     AC_DEFINE_UNQUOTED([WITH_LIBXL], 1, [whether libxenlight driver is enabled])
+    if test "x$LIBXL_FIRMWARE_DIR" = "x"; then
+        LIBXL_VERS=`dpkg-query -Wf '${Version}' libxen-dev|cut -d. -f1-2`
+        LIBXL_FIRMWARE_DIR="/usr/lib/xen-$LIBXL_VERS/boot"
+    fi
     if test "x$LIBXL_FIRMWARE_DIR" != "x"; then
         AC_DEFINE_UNQUOTED([LIBXL_FIRMWARE_DIR], ["$LIBXL_FIRMWARE_DIR"], [directory containing Xen firmware blobs])
     fi
@@ -1777,6 +1781,10 @@ AC_ARG_WITH([storage-gluster],
   [AS_HELP_STRING([--with-storage-gluster],
     [with Gluster backend for the storage driver @<:@default=check@:>@])],
   [],[with_storage_gluster=check])
+AC_ARG_WITH([storage-openvstorage],
+  [AS_HELP_STRING([--with-storage-openvstorage],
+    [with OpenvStorage backend for the storage driver @<:@default=check@:>@])],
+  [],[with_storage_openvstorage=check])
 AC_ARG_WITH([storage-zfs],
   [AS_HELP_STRING([--with-storage-zfs],
     [with ZFS backend for the storage driver @<:@default=check@:>@])],
@@ -1791,6 +1799,7 @@ if test "$with_libvirtd" = "no"; then
   with_storage_mpath=no
   with_storage_disk=no
   with_storage_rbd=no
+  with_storage_openvstorage=no
   with_storage_sheepdog=no
   with_storage_gluster=no
   with_storage_zfs=no
@@ -1972,6 +1981,22 @@ fi
 AM_CONDITIONAL([WITH_STORAGE_RBD], [test "$with_storage_rbd" = "yes"])
 AC_SUBST([LIBRBD_LIBS])
 
+LIBOPENVSTORAGE_LIBS=
+if test "$with_storage_openvstorage" = "yes" || test "$with_storage_openvstorage" = "check"; then
+    AC_CHECK_HEADER([openvstorage/volumedriver.h], [LIBOPENVSTORAGE_FOUND=yes; break;])
+
+    if test "$LIBOPENVSTORAGE_FOUND" = "yes"; then
+        with_storage_openvstorage=yes
+        LIBOPENVSTORAGE_LIBS="-lovsvolumedriver -L/usr/lib/openvstorage"
+        AC_DEFINE_UNQUOTED([WITH_STORAGE_OPENVSTORAGE], [1],
+         [whether OpenvStorage backend for storage driver is enabled])
+    else
+        with_storage_openvstorage=no
+    fi
+fi
+AM_CONDITIONAL([WITH_STORAGE_OPENVSTORAGE], [test "$with_storage_openvstorage" = "yes"])
+AC_SUBST([LIBOPENVSTORAGE_LIBS])
+
 if test "$with_storage_sheepdog" = "yes" ||
    test "$with_storage_sheepdog" = "check"; then
   AC_PATH_PROGS([SHEEPDOGCLI], [collie dog], [], [$PATH:/sbin:/usr/sbin])
@@ -2010,14 +2035,6 @@ if test "$with_storage_gluster" = "yes"; then
     [whether Gluster backend for storage driver is enabled])
 fi
 AM_CONDITIONAL([WITH_STORAGE_GLUSTER], [test "$with_storage_gluster" = "yes"])
-
-if test "$with_storage_zfs" = "check"; then
-    with_storage_zfs=$with_freebsd
-fi
-
-if test "$with_storage_zfs" = "yes" && test "$with_freebsd" = "no"; then
-    AC_MSG_ERROR([The ZFS storage driver can be enabled on FreeBSD only.])
-fi
 
 if test "$with_storage_zfs" = "yes" ||
    test "$with_storage_zfs" = "check"; then
@@ -2861,6 +2878,7 @@ AC_MSG_NOTICE([    Disk: $with_storage_disk])
 AC_MSG_NOTICE([     RBD: $with_storage_rbd])
 AC_MSG_NOTICE([Sheepdog: $with_storage_sheepdog])
 AC_MSG_NOTICE([ Gluster: $with_storage_gluster])
+AC_MSG_NOTICE([ OpenvStorage: $with_storage_openvstorage])
 AC_MSG_NOTICE([     ZFS: $with_storage_zfs])
 AC_MSG_NOTICE([])
 AC_MSG_NOTICE([Security Drivers])
@@ -2963,6 +2981,11 @@ if test "$with_storage_rbd" = "yes" ; then
 AC_MSG_NOTICE([     rbd: $LIBRBD_LIBS])
 else
 AC_MSG_NOTICE([     rbd: no])
+fi
+if test "$with_storage_openvstorage" = "yes" ; then
+AC_MSG_NOTICE([     openvstorage: $LIBOPENVSTORAGE_LIBS])
+else
+AC_MSG_NOTICE([     openvstorage: no])
 fi
 AC_MSG_NOTICE([pm-utils: $with_pm_utils])
 

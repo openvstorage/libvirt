@@ -294,13 +294,13 @@
 
   <define name='emulator'>
     <element name='emulator'>
-      <ref name='absFilePath'/>
+      <ref name='filePath'/>
     </element>
   </define>
 
   <define name='loader'>
     <element name='loader'>
-      <ref name='absFilePath'/>
+      <ref name='filePath'/>
     </element>
   </define>
 

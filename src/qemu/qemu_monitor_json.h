@@ -30,6 +30,7 @@
 # include "qemu_monitor.h"
 # include "virbitmap.h"
 # include "cpu/cpu.h"
+# include "util/virgic.h"
 
 int qemuMonitorJSONIOProcess(qemuMonitorPtr mon,
                              const char *data,
@@ -133,6 +134,9 @@ int qemuMonitorJSONGetMigrationCapability(qemuMonitorPtr mon,
 int qemuMonitorJSONSetMigrationCapability(qemuMonitorPtr mon,
                                           qemuMonitorMigrationCaps capability,
                                           bool state);
+
+int qemuMonitorJSONGetGICCapabilities(qemuMonitorPtr mon,
+                                      virGICCapability **capabilities);
 
 int qemuMonitorJSONMigrate(qemuMonitorPtr mon,
                            unsigned int flags,

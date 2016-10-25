@@ -59,7 +59,9 @@ VIR_ENUM_IMPL(virStoragePool,
               "dir", "fs", "netfs",
               "logical", "disk", "iscsi",
               "scsi", "mpath", "rbd",
-              "sheepdog", "gluster", "zfs")
+              "sheepdog", "gluster", "zfs",
+	      "openvstorage", "openvstorage+tcp",
+	      "openvstorage+rdma")
 
 VIR_ENUM_IMPL(virStoragePoolFormatFileSystem,
               VIR_STORAGE_POOL_FS_LAST,
@@ -273,6 +275,35 @@ static virStoragePoolTypeInfo poolTypeInfo[] = {
          .defaultFormat = VIR_STORAGE_FILE_RAW,
      },
     },
+    {.poolType = VIR_STORAGE_POOL_OPENVSTORAGE,
+     .poolOptions = {
+         .flags = (VIR_STORAGE_POOL_SOURCE_NETWORK),
+     },
+      .volOptions = {
+          .defaultFormat = VIR_STORAGE_FILE_RAW,
+          .formatToString = virStoragePoolFormatDiskTypeToString,
+    }
+    },
+    {.poolType = VIR_STORAGE_POOL_OPENVSTORAGE_TCP,
+     .poolOptions = {
+         .flags = (VIR_STORAGE_POOL_SOURCE_HOST |
+                   VIR_STORAGE_POOL_SOURCE_NETWORK),
+     },
+      .volOptions = {
+          .defaultFormat = VIR_STORAGE_FILE_RAW,
+          .formatToString = virStoragePoolFormatDiskTypeToString,
+    }
+    },
+    {.poolType = VIR_STORAGE_POOL_OPENVSTORAGE_RDMA,
+     .poolOptions = {
+         .flags = (VIR_STORAGE_POOL_SOURCE_HOST |
+                   VIR_STORAGE_POOL_SOURCE_NETWORK),
+     },
+      .volOptions = {
+          .defaultFormat = VIR_STORAGE_FILE_RAW,
+          .formatToString = virStoragePoolFormatDiskTypeToString,
+    }
+    }
 };
 
 
@@ -1174,7 +1205,10 @@ virStoragePoolDefFormatBuf(virBufferPtr buf,
      * files, so they don't have a target */
     if (def->type != VIR_STORAGE_POOL_RBD &&
         def->type != VIR_STORAGE_POOL_SHEEPDOG &&
-        def->type != VIR_STORAGE_POOL_GLUSTER) {
+        def->type != VIR_STORAGE_POOL_GLUSTER &&
+	def->type != VIR_STORAGE_POOL_OPENVSTORAGE &&
+        def->type != VIR_STORAGE_POOL_OPENVSTORAGE_TCP &&
+        def->type != VIR_STORAGE_POOL_OPENVSTORAGE_RDMA) {
         virBufferAddLit(buf, "<target>\n");
         virBufferAdjustIndent(buf, 2);
 
@@ -2574,6 +2608,9 @@ virStoragePoolSourceFindDuplicate(virConnectPtr conn,
             matchpool = pool;
             break;
         case VIR_STORAGE_POOL_RBD:
+	case VIR_STORAGE_POOL_OPENVSTORAGE:
+	case VIR_STORAGE_POOL_OPENVSTORAGE_TCP:
+	case VIR_STORAGE_POOL_OPENVSTORAGE_RDMA:
         case VIR_STORAGE_POOL_LAST:
             break;
         }
@@ -2655,6 +2692,12 @@ virStoragePoolMatch(virStoragePoolObjPtr poolobj,
                (poolobj->def->type == VIR_STORAGE_POOL_RBD))     ||
               (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_SHEEPDOG) &&
                (poolobj->def->type == VIR_STORAGE_POOL_SHEEPDOG)) ||
+	      (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE) &&
+               (poolobj->def->type == VIR_STORAGE_POOL_OPENVSTORAGE)) ||
+              (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE_TCP) &&
+               (poolobj->def->type == VIR_STORAGE_POOL_OPENVSTORAGE_TCP)) ||
+              (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_OPENVSTORAGE_RDMA) &&
+               (poolobj->def->type == VIR_STORAGE_POOL_OPENVSTORAGE_RDMA)) ||
               (MATCH(VIR_CONNECT_LIST_STORAGE_POOLS_GLUSTER) &&
                (poolobj->def->type == VIR_STORAGE_POOL_GLUSTER))))
             return false;

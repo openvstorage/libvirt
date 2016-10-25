@@ -1579,6 +1579,9 @@ storageVolLookupByPath(virConnectPtr conn,
             case VIR_STORAGE_POOL_RBD:
             case VIR_STORAGE_POOL_SHEEPDOG:
             case VIR_STORAGE_POOL_ZFS:
+	    case VIR_STORAGE_POOL_OPENVSTORAGE:
+	    case VIR_STORAGE_POOL_OPENVSTORAGE_TCP:
+	    case VIR_STORAGE_POOL_OPENVSTORAGE_RDMA:
             case VIR_STORAGE_POOL_LAST:
                 if (VIR_STRDUP(stable_path, path) < 0) {
                      virStoragePoolObjUnlock(pool);
@@ -3406,6 +3409,9 @@ virStorageTranslateDiskSourcePool(virConnectPtr conn,
     case VIR_STORAGE_POOL_RBD:
     case VIR_STORAGE_POOL_SHEEPDOG:
     case VIR_STORAGE_POOL_GLUSTER:
+    case VIR_STORAGE_POOL_OPENVSTORAGE:
+    case VIR_STORAGE_POOL_OPENVSTORAGE_TCP:
+    case VIR_STORAGE_POOL_OPENVSTORAGE_RDMA:
     case VIR_STORAGE_POOL_LAST:
         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
                        _("using '%s' pools for backing 'volume' disks "

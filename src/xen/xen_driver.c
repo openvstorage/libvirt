@@ -299,22 +299,36 @@ xenUnifiedProbe(void)
 }
 
 #ifdef WITH_LIBXL
+#define TOOLSTACK_PATH "/usr/lib/xen-common/bin/xen-toolstack"
 static bool
 xenUnifiedXendProbe(void)
 {
     bool ret = false;
+    char *output;
 
-    if (virFileExists("/usr/sbin/xend")) {
+    if (virFileExists(TOOLSTACK_PATH)) {
         virCommandPtr cmd;
+        int status;
 
-        cmd = virCommandNewArgList("/usr/sbin/xend", "status", NULL);
-        if (virCommandRun(cmd, NULL) == 0)
-            ret = true;
+        cmd = virCommandNewArgList(TOOLSTACK_PATH,  NULL);
+        virCommandSetOutputBuffer(cmd, &output);
+        if (virCommandRun(cmd, &status) == 0 && status == 0) {
+            int i, j;
+
+            for (i = 0, j = 0; output[i] != '\0'; i++)
+                if (output[i] == '/')
+                    j = i + 1;
+
+            if (output[j] == 'x' && output[j+1] == 'm')
+                ret = true;
+        }
+        VIR_FREE(output);
         virCommandFree(cmd);
     }
 
     return ret;
 }
+#undef TOOLSTACK_PATH
 #endif
 
 

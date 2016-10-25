@@ -82,18 +82,21 @@ struct _virStorageVolDefList {
 VIR_ENUM_DECL(virStorageVol)
 
 typedef enum {
-    VIR_STORAGE_POOL_DIR,      /* Local directory */
-    VIR_STORAGE_POOL_FS,       /* Local filesystem */
-    VIR_STORAGE_POOL_NETFS,    /* Networked filesystem - eg NFS, GFS, etc */
-    VIR_STORAGE_POOL_LOGICAL,  /* Logical volume groups / volumes */
-    VIR_STORAGE_POOL_DISK,     /* Disk partitions */
-    VIR_STORAGE_POOL_ISCSI,    /* iSCSI targets */
-    VIR_STORAGE_POOL_SCSI,     /* SCSI HBA */
-    VIR_STORAGE_POOL_MPATH,    /* Multipath devices */
-    VIR_STORAGE_POOL_RBD,      /* RADOS Block Device */
-    VIR_STORAGE_POOL_SHEEPDOG, /* Sheepdog device */
-    VIR_STORAGE_POOL_GLUSTER,  /* Gluster device */
-    VIR_STORAGE_POOL_ZFS,      /* ZFS */
+    VIR_STORAGE_POOL_DIR,	       /* Local directory */
+    VIR_STORAGE_POOL_FS,	       /* Local filesystem */
+    VIR_STORAGE_POOL_NETFS,	       /* Networked filesystem - eg NFS, GFS, etc */
+    VIR_STORAGE_POOL_LOGICAL,	       /* Logical volume groups / volumes */
+    VIR_STORAGE_POOL_DISK,	       /* Disk partitions */
+    VIR_STORAGE_POOL_ISCSI,	       /* iSCSI targets */
+    VIR_STORAGE_POOL_SCSI,	       /* SCSI HBA */
+    VIR_STORAGE_POOL_MPATH,	       /* Multipath devices */
+    VIR_STORAGE_POOL_RBD,	       /* RADOS Block Device */
+    VIR_STORAGE_POOL_SHEEPDOG,	       /* Sheepdog device */
+    VIR_STORAGE_POOL_GLUSTER,	       /* Gluster device */
+    VIR_STORAGE_POOL_ZFS,	       /* ZFS */
+    VIR_STORAGE_POOL_OPENVSTORAGE,     /* OpenvStorage volumes (SHM)  */
+    VIR_STORAGE_POOL_OPENVSTORAGE_TCP, /* OpenvStorage volumes (TCP)  */
+    VIR_STORAGE_POOL_OPENVSTORAGE_RDMA,/* OpenvStorage volumes (RDMA) */
 
     VIR_STORAGE_POOL_LAST,
 } virStoragePoolType;

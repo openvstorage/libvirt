@@ -6385,6 +6385,25 @@ virDomainDiskSourceParse(xmlNodePtr node,
             goto cleanup;
         }
 
+        if (src->path && src->protocol == VIR_STORAGE_NET_PROTOCOL_OPENVSTORAGE)
+        {
+            char *timeoutStr = NULL;
+            if ((timeoutStr = virXMLPropString(node, "snapshot-timeout")))
+            {
+                if (virStrToLong_ui(timeoutStr, NULL, 10, &src->snapshot_timeout) < 0)
+                {
+                    virReportError(VIR_ERR_XML_ERROR,
+                                    _("invalid snapshot timeout attribute '%s'"),
+                                    timeoutStr);
+                    goto cleanup;
+                }
+                src->ovs_has_snapshot_timeout = true;
+            }
+            else{
+                src->ovs_has_snapshot_timeout = false;
+            }
+        }
+
         /* for historical reasons the volume name for gluster volume is stored
          * as a part of the path. This is hard to work with when dealing with
          * relative names. Split out the volume into a separate variable */
@@ -14691,7 +14710,7 @@ virDomainDefParseXML(xmlDocPtr xml,
     xmlNodePtr *nodes = NULL, node = NULL;
     char *tmp = NULL;
     size_t i, j;
-    int n, virtType;
+    int n, virtType, gic_version;
     long id = -1;
     virDomainDefPtr def;
     bool uuid_generated = false;
@@ -15404,12 +15423,13 @@ virDomainDefParseXML(xmlDocPtr xml,
             node = ctxt->node;
             ctxt->node = nodes[i];
             if ((tmp = virXPathString("string(./@version)", ctxt))) {
-                if (virStrToLong_uip(tmp, NULL, 10, &def->gic_version) < 0 ||
-                    def->gic_version == 0) {
+                gic_version = virGICVersionTypeFromString(tmp);
+                if (gic_version < 0 || gic_version == VIR_GIC_VERSION_NONE) {
                     virReportError(VIR_ERR_XML_ERROR,
                                    _("malformed gic version: %s"), tmp);
                     goto error;
                 }
+                def->gic_version = gic_version;
                 VIR_FREE(tmp);
             }
             def->features[val] = VIR_TRISTATE_SWITCH_ON;
@@ -17525,8 +17545,9 @@ virDomainDefFeaturesCheckABIStability(virDomainDefPtr src,
     /* GIC version */
     if (src->gic_version != dst->gic_version) {
         virReportError(VIR_ERR_CONFIG_UNSUPPORTED,
-                       _("Source GIC version '%u' does not match destination '%u'"),
-                       src->gic_version, dst->gic_version);
+                       _("Source GIC version '%s' does not match destination '%s'"),
+                       virGICVersionTypeToString(src->gic_version),
+                       virGICVersionTypeToString(dst->gic_version));
         return false;
     }
 
@@ -18782,6 +18803,12 @@ virDomainDiskSourceFormatInternal(virBufferPtr buf,
             }
 
             virBufferEscapeString(buf, " name='%s'", path ? path : src->path);
+
+            if (src->ovs_has_snapshot_timeout)
+            {
+                virBufferAsprintf(buf, " snapshot-timeout='%d'",
+                                  src->snapshot_timeout);
+            }
 
             VIR_FREE(path);
 
@@ -22198,9 +22225,9 @@ virDomainDefFormatInternal(virDomainDefPtr def,
             case VIR_DOMAIN_FEATURE_GIC:
                 if (def->features[i] == VIR_TRISTATE_SWITCH_ON) {
                     virBufferAddLit(buf, "<gic");
-                    if (def->gic_version)
-                        virBufferAsprintf(buf, " version='%u'",
-                                          def->gic_version);
+                    if (def->gic_version != VIR_GIC_VERSION_NONE)
+                        virBufferAsprintf(buf, " version='%s'",
+                                          virGICVersionTypeToString(def->gic_version));
                     virBufferAddLit(buf, "/>\n");
                 }
                 break;

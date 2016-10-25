@@ -18,7 +18,7 @@ dnl <http://www.gnu.org/licenses/>.
 dnl
 
 AC_DEFUN([LIBVIRT_CHECK_SYSTEMD_DAEMON],[
-  LIBVIRT_CHECK_PKG([SYSTEMD_DAEMON], [libsystemd-daemon], [0.27.1])
+  LIBVIRT_CHECK_PKG([SYSTEMD_DAEMON], [libsystemd], [209])
 
     old_CFLAGS="$CFLAGS"
     old_LIBS="$LIBS"

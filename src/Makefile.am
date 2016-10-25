@@ -113,6 +113,7 @@ UTIL_SOURCES =							\
 		util/virfile.c util/virfile.h			\
 		util/virfirewall.c util/virfirewall.h		\
 		util/virfirewallpriv.h				\
+		util/virgic.c util/virgic.h			\
 		util/virhash.c util/virhash.h			\
 		util/virhashcode.c util/virhashcode.h		\
 		util/virhook.c util/virhook.h			\
@@ -965,6 +966,9 @@ STORAGE_DRIVER_SHEEPDOG_SOURCES =				\
 STORAGE_DRIVER_GLUSTER_SOURCES =				\
 		storage/storage_backend_gluster.h storage/storage_backend_gluster.c
 
+STORAGE_DRIVER_OPENVSTORAGE_SOURCES =                                  \
+                storage/storage_backend_openvstorage.h storage/storage_backend_openvstorage.c
+
 STORAGE_DRIVER_ZFS_SOURCES =					\
                 storage/storage_backend_zfs.h storage/storage_backend_zfs.c
 
@@ -1645,6 +1649,11 @@ libvirt_driver_storage_impl_la_CFLAGS += $(GLUSTERFS_CFLAGS)
 libvirt_driver_storage_impl_la_LIBADD += $(GLUSTERFS_LIBS)
 endif WITH_STORAGE_GLUSTER
 
+if WITH_STORAGE_OPENVSTORAGE
+libvirt_driver_storage_impl_la_SOURCES += $(STORAGE_DRIVER_OPENVSTORAGE_SOURCES)
+libvirt_driver_storage_impl_la_LIBADD += $(LIBOPENVSTORAGE_LIBS)
+endif WITH_STORAGE_OPENVSTORAGE
+
 if WITH_STORAGE_ZFS
 libvirt_driver_storage_impl_la_SOURCES += $(STORAGE_DRIVER_ZFS_SOURCES)
 endif WITH_STORAGE_ZFS
@@ -1856,6 +1865,7 @@ EXTRA_DIST +=							\
 		$(STORAGE_DRIVER_MPATH_SOURCES)			\
 		$(STORAGE_DRIVER_DISK_SOURCES)			\
 		$(STORAGE_DRIVER_RBD_SOURCES)			\
+		$(STORAGE_DRIVER_OPENVSTORAGE_SOURCES)  	\
 		$(STORAGE_DRIVER_SHEEPDOG_SOURCES)		\
 		$(STORAGE_DRIVER_GLUSTER_SOURCES)		\
 		$(STORAGE_DRIVER_ZFS_SOURCES)			\
@@ -2985,9 +2995,6 @@ if WITH_NETWORK
 	    cp $(DESTDIR)$(confdir)/qemu/networks/default.xml.t \
 	      $(DESTDIR)$(confdir)/qemu/networks/default.xml && \
 	    rm $(DESTDIR)$(confdir)/qemu/networks/default.xml.t; }
-	test -e $(DESTDIR)$(confdir)/qemu/networks/autostart/default.xml || \
-	   ln -s ../default.xml \
-	    $(DESTDIR)$(confdir)/qemu/networks/autostart/default.xml
 endif WITH_NETWORK
 
 uninstall-local:: uninstall-init uninstall-systemd

@@ -400,6 +400,34 @@ libxlDomainDefPostParse(virDomainDefPtr def,
     if (virDomainDefCheckUnsupportedMemoryHotplug(def) < 0)
         return -1;
 
+    /*
+     * For older versions of libvirt we always set the emulator string
+     * to "qemu-dm" (the field was not actually used or passed on to
+     * libxl). Newer versions of libvirt do use it and also pass it on.
+     * Also xml verification insists on this being a full path. So we
+     * convert all old configs to the full path.
+     */
+    if (def->emulator && STREQ(def->emulator, "qemu-dm")) {
+        VIR_FREE(def->emulator);
+        if (VIR_STRDUP(def->emulator, "/usr/bin/qemu-system-i386") < 0)
+            return -1;
+    }
+    /*
+     * Similar, but slightly more complicated is the loader case for HVM.
+     * That binary resides in a versioned path. So we need to convert both
+     * a standalone "hvmloader" and anything that came from an older libxen.
+     */
+    if (def->os.type == VIR_DOMAIN_OSTYPE_HVM && def->os.loader->path) {
+        virDomainLoaderDefPtr loader = def->os.loader;
+
+        if (STREQ(loader->path, "hvmloader") ||
+            strncmp(loader->path, "/usr/lib/xen-", 13))
+        {
+            VIR_FREE(loader->path);
+            if (VIR_STRDUP(loader->path, LIBXL_FIRMWARE_DIR "/hvmloader") < 0)
+                return -1;
+        }
+    }
     return 0;
 }
 

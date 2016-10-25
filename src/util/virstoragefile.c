@@ -48,6 +48,8 @@
 
 VIR_LOG_INIT("util.storagefile");
 
+#define OPENVSTORAGE_DFL_PORT "21321"
+
 VIR_ENUM_IMPL(virStorage, VIR_STORAGE_TYPE_LAST,
               "none",
               "file",
@@ -83,7 +85,8 @@ VIR_ENUM_IMPL(virStorageNetProtocol, VIR_STORAGE_NET_PROTOCOL_LAST,
               "https",
               "ftp",
               "ftps",
-              "tftp")
+              "tftp",
+    	      "openvstorage")
 
 VIR_ENUM_IMPL(virStorageNetHostTransport, VIR_STORAGE_NET_HOST_TRANS_LAST,
               "tcp",
@@ -2372,6 +2375,132 @@ virStorageSourceParseRBDColonString(const char *rbdstr,
     return -1;
 }
 
+static int virStorageSourceParseOpenvStorageStrStart(const char *str,
+                                                     const char *val,
+                                                     const char **ptr)
+{
+    const char *pp, *q;
+    pp = str;
+    q = val;
+    while (*q != '\0') {
+        if (*pp != *q)
+            return 0;
+        pp++;
+        q++;
+    }
+    if (ptr)
+        *ptr = pp;
+    return 1;
+}
+
+static int virStorageSourceParseOpenvStorageColonString(const char *path,
+                                                        virStorageSourcePtr src)
+{
+    bool is_network = false;
+    const char *a;
+    char *endptr, *inetaddr, *p, *t, *ptoken;
+    char *tokens[3];
+    unsigned long timeout;
+
+    src->ovs_has_snapshot_timeout = false;
+    if (strstr(path, "openvstorage+tcp"))
+    {
+        src->nhosts = 1;
+        src->hosts->transport = VIR_STORAGE_NET_HOST_TRANS_TCP;
+        if (VIR_STRDUP(p, path + strlen("openvstorage+tcp:")) < 0) {
+            return -1;
+        }
+        is_network = true;
+    } else if(strstr(path, "openvstorage+rdma")) {
+        src->nhosts = 1;
+        src->hosts->transport = VIR_STORAGE_NET_HOST_TRANS_RDMA;
+        if (VIR_STRDUP(p, path + strlen("openvstorage+rdma:")) < 0) {
+            return -1;
+        }
+        is_network = true;
+    } else {
+        if (VIR_STRDUP(p, path + strlen("openvstorage:")) < 0) {
+            return -1;
+        }
+    }
+
+    if (is_network) {
+        if (VIR_ALLOC_N(src->hosts, 1) < 0) {
+            VIR_FREE(p);
+            return -1;
+        }
+
+        tokens[0] = strsep(&p, "/");
+        tokens[1] = strsep(&p, ":");
+        tokens[2] = strsep(&p, "\0");
+    } else {
+        tokens[0] = strsep(&p, ":");
+        tokens[1] = strsep(&p, "\0");
+    }
+
+    if (is_network && ((tokens[0] && !strlen(tokens[0])) ||
+                       (tokens[1] && !strlen(tokens[1])))) {
+        goto error;
+    } else if(!is_network && tokens[0] && !strlen(tokens[0])) {
+        goto error;
+    }
+
+    if (is_network) {
+        if (!index(tokens[0], ':')) {
+            if (VIR_STRDUP(src->hosts->port, OPENVSTORAGE_DFL_PORT) < 0)
+                goto error;
+            if (VIR_STRDUP(src->hosts->name, tokens[0]) < 0)
+                goto error;
+        } else {
+            if (VIR_STRDUP(inetaddr, tokens[0]) < 0)
+                goto error;
+            if (VIR_STRDUP(src->hosts->name, strtok(inetaddr, ":")) < 0)
+            {
+                VIR_FREE(inetaddr);
+                goto error;
+            }
+            ptoken = strtok(NULL, "\0");
+            if (ptoken != NULL)
+            {
+                if (VIR_STRDUP(src->hosts->port, ptoken) < 0)
+                {
+                    VIR_FREE(inetaddr);
+                    goto error;
+                }
+            } else {
+                VIR_FREE(inetaddr);
+                goto error;
+            }
+            VIR_FREE(inetaddr);
+        }
+    }
+
+    t = is_network ? tokens[2] : tokens[1];
+    if (t != NULL &&
+        virStorageSourceParseOpenvStorageStrStart(t, "snapshot-timeout=", &a))
+    {
+        if (strlen(a) > 0) {
+            timeout = strtoul(a, &endptr, 10);
+            if (strlen(endptr)) {
+                goto error;
+            }
+            src->snapshot_timeout = timeout;
+            src->ovs_has_snapshot_timeout = true;
+        }
+    }
+    VIR_FREE(src->path);
+    if (VIR_STRDUP(src->path, is_network ? tokens[1] : tokens[0]) < 0) {
+        goto error;
+    }
+    VIR_FREE(p);
+    return 0;
+error:
+    VIR_FREE(p);
+    if (is_network) {
+        VIR_FREE(src->hosts);
+    }
+    return -1;
+}
 
 static int
 virStorageSourceParseNBDColonString(const char *nbdstr,
@@ -2480,6 +2609,10 @@ virStorageSourceParseBackingColon(virStorageSourcePtr src,
 
     case VIR_STORAGE_NET_PROTOCOL_RBD:
         if (virStorageSourceParseRBDColonString(path, src) < 0)
+            goto cleanup;
+        break;
+    case VIR_STORAGE_NET_PROTOCOL_OPENVSTORAGE:
+        if (virStorageSourceParseOpenvStorageColonString(path, src) < 0)
             goto cleanup;
         break;
 
