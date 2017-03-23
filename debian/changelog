@@ -1,3 +1,10 @@
+libvirt (1.2.2-0ovs1.0-0ubuntu13.1.20) trusty; urgency=medium
+
+  * Remove libovsvolumedriver package versioning check,
+    use the virtual package name instead.
+
+ -- Chrysostomos Nanakos <cnanakos@openvstorage.com>  Thu, 23 Mar 2017 11:01:28 +0100
+
 libvirt (1.2.2-0ovs1.0-0ubuntu13.1.19) trusty; urgency=medium
 
   * Drop outdated and broken dependency on volumedriver-server
