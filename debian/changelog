@@ -1,3 +1,10 @@
+libvirt (1.3.1-0ovs2.1-1ubuntu10.5) xenial; urgency=medium
+
+  * Remove libovsvolumedriver package versioning check,
+    use the virtual package name instead.
+
+ -- Chrysostomos Nanakos <cnanakos@openvstorage.com>  Thu, 23 Mar 2017 11:00:31 +0100
+
 libvirt (1.3.1-0ovs2.0-1ubuntu10.5) xenial; urgency=medium
 
   * Compile against the latest libovsvolumedriver version.
